@@ -1,0 +1,115 @@
+#!/bin/sh
+# sandbox-run: run command in a secure OS sandbox
+set -eu
+
+command -v bwrap >/dev/null || { command bwrap; echo 'Error: Missing /usr/bin/bwrap (apt install bubblewrap?)'; }
+
+# Support symlinks e.g. ./local/bin/npm -> /usr/bin/sandbox-run
+bin="$0"
+if [ "${bin##*/}" = 'sandbox-run' ]; then
+    if [ "$#" -eq 0 ]
+    then echo "Usage: ${0##*/} ARG..."; exit 1
+    else bin="${1:-}"; shift
+    fi
+fi
+
+uid="$(id -u)"
+cwd="$(pwd)"
+
+# Quote args with spaces. Do this here before overriding "$@"
+format_args () {
+    for arg in "$bin" "$@"; do case "$arg" in
+        $cwd/*) printf "%s " "${cwd##*/}/${arg#"$cwd/"}" ;;
+        *\ *) printf "'%s' " "$arg" ;;
+        *) printf "%s " "$arg" ;;
+    esac; done
+}
+formatted_cmdline="$(format_args "$@")"
+warn () { echo "sandbox-run: $*" >&2; }
+
+# RO-bind select paths
+paths='
+/etc/resolv.conf
+/etc/ssl
+/etc/hosts
+/etc/pki
+/etc/ld.so.cache
+/etc/localtime
+/etc/mtab
+/etc/os-release
+/etc/timezone
+/lib
+/lib64
+/run/dbus/system_bus_socket
+/usr
+'
+
+split_args_by_lf () {
+    lf='
+'
+    printf '%s' "$1" | case "$1" in *$lf*) cat ;; *) tr ' ' '\n' ;; esac
+}
+IFS='
+'  # Split args only on newline
+# shellcheck disable=SC2046
+set -- $(split_args_by_lf "${BWRAP_ARGS:-}") "$bin" "$@"
+unset IFS
+
+home="$cwd/.sandbox-home"
+mkdir -p "$home/tmp"
+
+# Set env vars
+IFS=$(printf '\037')
+for var in $(env -0 |
+        grep -Ez -e '^('\
+'USER|LOGNAME|UID|PATH|TERM|HOSTNAME|'\
+'LANGUAGE|LANG|LC_.*?|TZ|'\
+'https?_proxy|HTTPS?_PROXY|'\
+'CC|CFLAGS|CXXFLAGS|CPPFLAGS|LDFLAGS|LDLIBS|MAKEFLAGS)=' \
+                 -e "^($(env -0 |
+                         cut -z -d= -f1 |
+                         grep -Ezv "^($(cut -z -d= -f1 </proc/$PPID/environ |
+                                        paste -z -s -d '|'))$" |
+                         paste -z -s -d '|'))=" |
+        grep -Ezv -e '^(_|LS_COLORS|PS1)=' |
+        tr '\0' '\037'); do
+    set -- --setenv "${var%%=*}" "${var#*=}" "$@"
+done
+unset IFS
+
+warn "exec bwrap [...] $formatted_cmdline"
+[ ! "${VERBOSE:-${verbose:-}}" ] || set -x
+
+# shellcheck disable=SC2046
+bwrap \
+    --dir /tmp \
+    --tmpfs /run \
+    --proc /proc \
+    --dev /dev \
+    --symlink /tmp /var/tmp \
+    --symlink /usr/bin /bin \
+    --symlink /usr/bin /sbin \
+    --dev-bind-try /dev/fuse /dev/fuse \
+    $(set +x; for path in $paths; do [ ! -e "$path" ] || printf -- '--ro-bind-try %s %s ' "$path" "$path"; done) \
+    --bind "$cwd" "$cwd" \
+    --chdir "$cwd" \
+    --clearenv \
+    --unshare-all \
+    --share-net \
+    --new-session \
+    --die-with-parent \
+    --dir /run/user/$uid \
+    --setenv XDG_RUNTIME_DIR "/run/user/$uid" \
+    --setenv PATH /usr/bin \
+    --setenv PS1 '\u @ \h \$ ' \
+    --setenv HOME "$home" \
+    --setenv USER "user" \
+    --setenv TMPDIR "$home/tmp" \
+    --bind-data 5 /etc/passwd \
+    --bind-data 4 /etc/group \
+    "$@" \
+    5<<EOF 4<<EOF2
+$(set +x; getent passwd "$uid" 65534)
+EOF
+$(set +x; getent group "$(id -g)" 65534)
+EOF2
