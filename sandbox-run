@@ -44,21 +44,24 @@ paths='
 /usr
 '
 
-split_args_by_lf () {
-    lf='
+lf='
 '
-    printf '%s' "$1" | case "$1" in *$lf*) cat ;; *) tr ' ' '\n' ;; esac
-}
-IFS='
-'  # Split args only on newline
+split_args_by_lf () { printf '%s' "$1" | case "$1" in *$lf*) cat ;; *) tr ' ' '\n' ;; esac; }
+# Support BWRAP_ARGS passed to the process as well as via .env file
+prev_BWRAP_ARGS="${BWRAP_ARGS:-}"
+# Init env from dotenv file
 # shellcheck disable=SC2046
-set -- $(split_args_by_lf "${BWRAP_ARGS:-}") "$bin" "$@"
+[ ! -e "$cwd/.env" ] || { . "$cwd/.env"; export $(grep -Pzo '(?m)^\w*(?==)' "$cwd/.env" | tr '\0' '\n'); }
+IFS="$lf"  # Split args only on newline
+# shellcheck disable=SC2046
+set -- $(split_args_by_lf "${BWRAP_ARGS:-}") $(split_args_by_lf "${prev_BWRAP_ARGS:-}") "$bin" "$@"
 unset IFS
 
 home="$cwd/.sandbox-home"
 mkdir -p "$home/tmp"
 
-# Set env vars
+# Pass our own redacted copy of env
+# Expose all vars passed exclusively to this process (i.e. not its parent)
 IFS=$(printf '\037')
 for var in $(env -0 |
         grep -Ez -e '^('\
@@ -72,6 +75,7 @@ for var in $(env -0 |
                                         paste -z -s -d '|'))$" |
                          paste -z -s -d '|'))=" |
         grep -Ezv -e '^(_|LS_COLORS|PS1)=' |
+        grep -Ezv -e '^(BWRAP_ARGS)=' |
         tr '\0' '\037'); do
     set -- --setenv "${var%%=*}" "${var#*=}" "$@"
 done
