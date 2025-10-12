@@ -6,10 +6,17 @@ command -v bwrap >/dev/null || { command bwrap; echo 'Error: Missing /usr/bin/bw
 
 # Support symlinks e.g. ./local/bin/npm -> /usr/bin/sandbox-run
 bin="$0"
-if [ "${bin##*/}" = 'sandbox-run' ]; then
+if [ "${bin##*/}" != 'sandbox-run' ]; then
+    IFS=:
+    for d in ${PATH:-/usr/local/bin:/usr/bin:/bin}; do
+        p="$d/${0##*/}"
+        [ "$0" != "$p" ] && [ -x "$p" ] && bin="$p" && break || true
+    done
+    unset IFS
+else
     if [ "$#" -eq 0 ]
     then echo "Usage: ${0##*/} ARG..."; exit 1
-    else bin="${1:-}"; shift
+    else bin="$1"; shift
     fi
 fi
 
