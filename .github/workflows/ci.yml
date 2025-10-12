@@ -1,0 +1,40 @@
+name: CI
+on:
+  push:
+    branches: [master]
+    tags: ['v*']
+  pull_request: { branches: [master] }
+  schedule: [ cron: '9 5 7 * *' ]
+  workflow_dispatch:
+
+jobs:
+  test:
+    timeout-minutes: 5
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: shellcheck -S warning sandbox-run tests/*.sh
+      - run: sudo apt-get remove man-db
+      - run: |
+          # https://github.com/DevToys-app/DevToys/issues/1373
+          sudo apt install apparmor-profiles
+          sudo ln -s /usr/share/apparmor/extra-profiles/bwrap-userns-restrict /etc/apparmor.d/bwrap
+          sudo apparmor_parser /etc/apparmor.d/bwrap
+          # Alternative:
+          # sudo sysctl -w kernel.apparmor_restrict_unprivileged_unconfined=1
+          # sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=1
+      - run: sudo apt-get install bubblewrap tree
+      - run: sudo ldconfig --verbose
+      - run: time bash tests/smoke-test.sh
+      - run: time bash tests/test-bwrap-opts.sh
+      - run: time bash tests/test-env-vars.sh
+      - run: time bash tests/test-npm.sh
+      - run: time bash tests/test-symlinks.sh
+
+  workflow-keepalive:
+    if: github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+    steps:
+      - uses: liskin/gh-workflow-keepalive@f72ff1a1336129f29bf0166c0fd0ca6cf1bcb38c  # v1.2.1
