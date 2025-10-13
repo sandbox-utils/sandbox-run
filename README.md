@@ -125,6 +125,7 @@ You can run `sandbox-run bash` to spawn **interactive shell inside the sandbox**
 #### Environment variables
 
 * `BWRAP_ARGS=`– Extra arguments passed to `bwrap` process; space or line-delimited (if arguments such as paths themselves contain spaces).
+* `SANDBOX_RO_BIND=`– List of additional path glob expressions to mount read-only inside the sandbox.
 * `VERBOSE=`– Print full `exec bwrap` command line right before execution.
 
 
