@@ -16,7 +16,7 @@ if [ "${bin##*/}" != 'sandbox-run' ]; then
 else
     if [ "$#" -eq 0 ]
     then echo "Usage: ${0##*/} ARG..."; exit 1
-    else bin="$1"; shift
+    else bin="$(command -v "$1")"; shift
     fi
 fi
 
@@ -104,6 +104,7 @@ bwrap \
     --symlink /usr/bin /bin \
     --symlink /usr/bin /sbin \
     --dev-bind-try /dev/fuse /dev/fuse \
+    --ro-bind "$bin" "$bin" \
     $(set +x; for path in $paths; do [ ! -e "$path" ] || printf -- '--ro-bind-try %s %s ' "$path" "$path"; done) \
     --bind "$cwd" "$cwd" \
     --chdir "$cwd" \
