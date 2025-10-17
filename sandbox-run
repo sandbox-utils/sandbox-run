@@ -40,6 +40,7 @@ split_args_by_lf () { printf '%s' "$1" | case "$1" in *$lf*) cat ;; *) tr ' ' '\
 
 # RO-bind select paths
 paths='
+/etc/alternatives
 /etc/resolv.conf
 /etc/ssl
 /etc/hosts
