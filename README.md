@@ -77,7 +77,7 @@ process invocations via **`$BWRAP_ARGS` environment variable**. E.g.:
 
 ```sh
 BWRAP_ARGS='--bind /opt /opt' \
-    python -c 'import os; print(os.listdir("/opt"))'
+    sandbox-run ./NVIDIA-Driver-Installer.run
 ```
 
 For details, see `bubblewrap --help` or [`man 1 bwrap`](https://manpages.debian.org/unstable/bwrap).
@@ -103,6 +103,7 @@ is lost upon container termination.
 #### Linux Seccomp
 
 See `bwrap` switches [`--seccomp FD` and `--add-seccomp-fd FD`](https://manpages.debian.org/unstable/bubblewrap/bwrap.1.en.html#:~:text=Lockdown%20options%3A-,--seccomp%20fd,-Load%20and%20use).
+
 
 #### Runtime monitoring
 

@@ -45,15 +45,20 @@ paths='
 /etc/ssl
 /etc/hosts
 /etc/pki
+/etc/pkcs11
 /etc/ld.so.cache
+/etc/ld.so.conf.d
 /etc/localtime
-/etc/mtab
 /etc/os-release
 /etc/timezone
 /lib
 /lib64
 /run/dbus/system_bus_socket
 /usr
+'
+# ld.so.conf.d: https://containertoolbx.org/doc/#ldconfig8
+RW_paths='
+/etc/ld.so.conf.d
 '
 
 # Support BWRAP_ARGS passed to the process as well as via .env file
@@ -97,16 +102,18 @@ warn "exec bwrap [...] $formatted_cmdline"
 
 # shellcheck disable=SC2046
 bwrap \
-    --dir /tmp \
+    --tmpfs /tmp \
     --tmpfs /run \
     --proc /proc \
     --dev /dev \
+    --symlink /run /var/run \
     --symlink /tmp /var/tmp \
     --symlink /usr/bin /bin \
     --symlink /usr/bin /sbin \
     --dev-bind-try /dev/fuse /dev/fuse \
     --ro-bind "$bin" "$bin" \
     $(set +x; for path in $paths; do [ ! -e "$path" ] || printf -- '--ro-bind-try %s %s ' "$path" "$path"; done) \
+    $(set +x; for path in $RW_paths; do [ ! -e "$path" ] || printf -- '--bind-try %s %s ' "$path" "$path"; done) \
     --bind "$cwd" "$cwd" \
     --chdir "$cwd" \
     --clearenv \
