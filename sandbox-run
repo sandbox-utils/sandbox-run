@@ -127,5 +127,5 @@ bwrap \
     5<<EOF 4<<EOF2
 $(set +x; getent passwd "$uid" 65534)
 EOF
-$(set +x; getent group "$(id -g)" 65534)
+$(set +ex; getent group "$(id -g)" 65534 adm sudo audio dip video plugdev staff users netdev scanner bluetooth lpadmin)
 EOF2
