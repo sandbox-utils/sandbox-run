@@ -11,11 +11,11 @@ sandbox-run: run command in a secure OS sandbox
 
 #### Problem statement
 
-Running other people's programs is insecure. 
+Running other people's programs is inherently insecure.
 [Rogue dependencies](https://www.google.com/search?q=malicious+python+packages&tbm=nws)\*
 🎯 or [hacked library code](https://www.google.com/search?q=(hacked+OR+hijacked+OR+backdoored+OR+"supply+chain+attack")+(npm+OR+pypi)&tbm=nws&num=100)
 :pirate_flag: ([et cet.](https://slsa.dev/spec/draft/threats-overview) :warning:)
-can wreak havoc, including access all your private parts** :bangbang:—think
+**can wreak havoc, including access all your private parts** :bangbang:—think
 all current user's credentials and more personal bits like:
 * `~/.ssh`,
 * `~/.pki/nssdb/`,
@@ -30,12 +30,12 @@ relies on impeccability of hundreds or thousands of dependencies, NodeJS and Chr
 
 Run scary software in separate secure containers:
 ```shell
-podman run -it -v .:/src -e PATH=/src debian:stable-slim scary-binary
+podman run --rm -it -v "$PWD:$PWD" --net=host --workdir="$PWD" debian:stable-slim ./scary-binary
 ```
 or you can simply 
 `sandbox-run scary-binary`
-which uses [bubblewrap](https://github.com/containers/bubblewrap)** (of
-[Flatpak](https://en.wikipedia.org/wiki/Flatpak) fame) under the hood.
+which uses [**bubblewrap**](https://github.com/containers/bubblewrap) (of
+[Flatpak](https://en.wikipedia.org/wiki/Flatpak) fame) to spawn your native OS container under the hood.
 
 
 Installation
@@ -90,14 +90,15 @@ See more specific examples below.
 
 #### Filesystem mounts
 
-The current working directory is mounted with read-write permissions**,
-while everything else is mounted read-only. In addition:
+The **current working directory is mounted with read-write permissions**,
+while everything else required for a successful run (e.g. /usr)
+is mounted **read-only**. In addition:
 
 * `"$PWD/.sandbox-home"` is bind-mounted as `"$HOME"`,
 
 To mount extra endpoints, use `BWRAP_ARGS=` with switches `--bind` or `--bind-ro`.
 Anything else not explicitly mounted by an extra CLI switch
-is lost upon container termination.
+is **lost upon container termination**.
 
 
 #### Linux Seccomp
@@ -132,7 +133,7 @@ You can run `sandbox-run bash` to spawn **interactive shell inside the sandbox**
 
 #### Debugging
 
-To see what's failing, run the sandbox with something like `strace -f -e '%file,%process' ...`.
+To see what's failing, run the sandbox with something like `colorstrace -f -e '%file,%process' ...`.
 
 
 Examples
@@ -166,5 +167,5 @@ You see a mistake—you fix it. Thanks!
 
 Viable alternatives
 -------------------
-See a few alternatives discussed over at
+See a few alternatives discussed over at sister project
 [`sandbox-venv`](https://github.com/sandbox-utils/sandbox-venv/#Viable-alternatives).
