@@ -34,8 +34,12 @@ podman run --rm -it -v "$PWD:$PWD" --net=host --workdir="$PWD" debian:stable-sli
 ```
 or you can simply 
 `sandbox-run scary-binary`
+(e.g. `sandbox-run npx @google/gemini-cli`)
 which uses [**bubblewrap**](https://github.com/containers/bubblewrap) (of
-[Flatpak](https://en.wikipedia.org/wiki/Flatpak) fame) to spawn your native OS container under the hood.
+[Flatpak](https://en.wikipedia.org/wiki/Flatpak) fame) to spawn your native OS container under the hood,
+and, after downloading almost 500 MB ❗ of JavaScript sources,
+executes this untrusted third-party's Node/NPM package anonymously and securely,
+with its CWD in `$PWD` and new `$HOME` in `$PWD/.sandbox-home`.
 
 
 Installation
@@ -165,7 +169,7 @@ Contributing
 You see a mistake—you fix it. Thanks!
 
 
-Viable alternatives
--------------------
+Alternatives
+------------
 See a few alternatives discussed over at sister project
 [`sandbox-venv`](https://github.com/sandbox-utils/sandbox-venv/#Viable-alternatives).
