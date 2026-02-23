@@ -1,0 +1,186 @@
+#!/bin/sh
+# Minimal namespace sandbox using unshare & setpriv from util-linux.
+# shellcheck disable=SC2093,SC2317
+set -eux
+
+ROOT="${ROOT:-$PWD/.sandbox}"
+ROOT="${ROOT%/}"  # Strip trailing '/'
+DEBUG="${DEBUG:-}"
+_RS="$(printf '\036')"
+_LF="$(printf '\012')"
+pwd="$PWD"
+
+[ $# -gt 0 ] || { echo "Usage: $0 cmd [args]"; echo; echo 'Sandbox a Linux program.'; exit 1; }
+
+_split_str_by_lf () { printf '%s' "$1" | case "$1" in *$_LF*) cat ;; *) tr ' ' '\n' ;; esac; }
+
+_mount_path () {
+    path="$1" ro="${2:+,ro}"
+    if [ -d "$path" ]; then
+        mount --mkdir -vo "rbind${ro:+,ro=recursive}" "$path" "./$path"
+    elif [ -e "$path" ]; then
+        mkdir -p "./${path%/*}"
+        touch "./$path" || true
+        mount -vo "bind$ro" "$path" "./$path"
+    fi
+}
+
+_sandbox_init () {
+    # Prepare chroot
+    # TODO: set up overlayfs with lower=/,upper=$ROOT
+    mkdir -p "$ROOT"
+    cd "$ROOT"
+    mkdir -p dev proc sys tmp etc usr lib lib64 .git ".$pwd"
+
+    # Mount usr/lib
+    for pth in usr lib lib64; do
+        [ ! -e "/$pth" ] || mount -vo bind,ro "/$pth" "$pth"
+    done
+    for pth in etc/resolv.conf; do
+        [ ! -e "/$pth" ] || _mount_path "/$pth" ro
+    done
+    ln -s usr/bin -t . bin || true
+    ln -s usr/sbin -t . sbin || true
+
+    # Mock /dev
+    mount -t tmpfs -o nosuid,noexec tmpfs dev
+    for pth in dev/zero dev/null dev/full dev/random dev/urandom dev/tty dev/console dev/pts dev/shm; do
+        [ ! -e "/$pth" ] || { [ -d "/$pth" ] && mkdir "$pth" || touch "$pth"; mount --bind "/$pth" "$pth"; }
+    done
+    ln -s /dev/pts/ptmx -t dev ptmx || true
+    ln -s /proc/kcore -t dev core || true
+    ln -s /proc/self/fd -t dev fd || true
+    ln -s /proc/self/fd/0 -t dev stdin || true
+    ln -s /proc/self/fd/1 -t dev stdout || true
+    ln -s /proc/self/fd/2 -t dev stderr || true
+
+    # Mount real CWD
+    mount -v --bind "$pwd" ".$pwd"
+    # Overlay some resources with empty/null to conceal them
+    mkdir -p .empty-sandbox .empty-git
+    mount -v --bind .empty-sandbox ".$pwd/${ROOT##*/}"
+    [ ! -d "$pwd/.git" ] || mount -v --bind .empty-git ".$pwd/.git"
+    [ ! -e "$pwd/.env" ] || mount -v --bind /dev/null ".$pwd/.env"
+
+    # Status report
+    [ ! "$DEBUG" ] || tree -L1 . || true
+
+    # Init the environment
+    set -f; IFS="$_RS"
+    # shellcheck disable=SC2013
+    for var in $(cat <&5); do export "${var?}"; done
+    unset IFS; set +f
+
+    # Source .env
+    [ ! -e "$pwd/.env" ] || {
+        . "$pwd/.env"
+        # shellcheck disable=SC2013
+        for var in $(grep -oP '^\w+(?>==)' "$pwd/.env"); do export "${var?}"; done
+    }
+
+    # Handle RW_BIND=, RO_BIND=
+    IFS="$_LF"
+    for pth in $(_split_str_by_lf "${RW_BIND:-}"); do
+        _mount_path "$(realpath --relative-to .. "$pth")"
+    done
+    for pth in $(_split_str_by_lf "${RO_BIND:-}"); do
+        _mount_path "$(realpath --relative-to .. "$pth")" ro
+    done
+    unset IFS RO_BIND RW_BIND
+
+    # TODO read firejail profiles
+    [ ! -e "./firejail.profile" ] || (
+        tmp="./.tmp"
+        cat_profile () { [ ! -e "$1" ] || grep -E 'noblacklist|include|read-only' "$1"; }
+        cat_profile "./firejail.profile" >"$tmp"
+        exec 3<"$tmp"
+#        while read -r keyword pth comment comment2 <&3 || [ "$keyword" ]; do
+        while read -r line <&3 || [ "$line" ]; do
+            keyword="${line%% *}"
+            pth="${line#* }" pth="${pth%% *}"
+            echo "pth = $pth; $keyword -- $line"
+            case "$pth" in
+                *\${HOME}*) eval "pth=$pth" ;;
+                *\${PATH}*)
+                    exe="${pth##*/}"
+                    IFS=:; for dir in $PATH; do
+                        # shellcheck disable=SC2015
+                        [ -x "$dir/$exe" ] && pth="$dir/$exe" && break || true
+                    done
+                    ;;
+            esac
+            case "$keyword" in
+                include) cat_profile "$(cd /etc/firejail; realpath "$pth")" >>"$tmp"; continue ;;
+            esac
+            for path in $pth; do
+                [ "$keyword" = 'read-only' ] && ro=1 || ro=
+                _mount_path "$path" $ro
+            done
+        done
+        exec 3<&-
+        rm "$tmp"
+    )
+
+    cd -
+
+    hostname sandbox
+#    bash
+#    slirp4netns --configure --mtu=65520 --disable-host-loopback $$ tap0
+
+    [ "$#" -gt 0 ] || set sh;
+
+    time_offset="$(( RANOM * 117 ))"
+
+    # Switch into a nobody:nogroup namespace
+    # TODO: setpriv, keep "internet" cap
+    exec unshare \
+        --kill-child --mount-proc --mount-binfmt \
+        --map-user nobody --map-group nogroup \
+        --monotonic $time_offset --boottime $time_offset \
+        --ipc --mount --net --pid --uts --user --cgroup --time \
+        --keep-caps --root "$ROOT" --wd "$pwd" \
+        setpriv --bounding-set=-all --inh-caps=-all --ambient-caps=-all \
+        "$0" --_sandbox_payload "$@"
+}
+
+_sandbox_payload () {
+    # Inside the sandbox, run
+    echo "[sandbox] uid:$(id -u) pid:$$ cwd:$PWD args: $*"
+    env | sort
+    exec "$@"
+}
+
+[ "$1" != '--_sandbox_init' ] || { shift 1; _sandbox_init "$@"; exit $?; }
+[ "$1" != '--_sandbox_payload' ] || { shift 1; _sandbox_payload "$@"; exit $?; }
+
+_cleanup () {
+    if [ ! "$DEBUG" ]; then
+        cd "$ROOT"
+        rmdir -v .empty-* dev etc lib lib64 proc sys tmp usr || true
+        rm -vf bin sbin || true  # Symlinks
+        rmdir -vp "${pwd#/}" || true
+        cd -
+    else echo "sandbox-run: rootfs workdir in \"$ROOT\"" >&2; fi
+}
+trap _cleanup EXIT TERM INT HUP
+
+_filter_env () {
+    env -0 | grep -Eze '^('\
+'USER|LOGNAME|UID|PATH|TERM|HOME|HOSTNAME|'\
+'LANGUAGE|LANG|LC_.*?|TZ|'\
+'https?_proxy|HTTPS?_PROXY|'\
+'CC|CFLAGS|CXXFLAGS|CPPFLAGS|LDFLAGS|LDLIBS|MAKEFLAGS)='
+}
+
+# We switch into a root-user namespace where mount is allowed
+env -i \
+    unshare \
+    --kill-child --mount-proc --mount-binfmt --map-root-user \
+    --monotonic -1000 --boottime -1000 \
+    --ipc --mount --net --pid --uts --user --cgroup --time \
+    "$0" --_sandbox_init "$@" \
+    5<<EOF
+$(_filter_env | tr '\0' "$_RS")
+EOF
+
+exit 0
