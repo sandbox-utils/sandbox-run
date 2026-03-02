@@ -53,9 +53,13 @@ _sandbox_init () {
     ln -s usr/sbin -t . sbin || true
 
     # Mock /dev
-    mount -t tmpfs -o nosuid,noexec tmpfs dev
-    for pth in dev/zero dev/null dev/full dev/random dev/urandom dev/tty dev/console dev/pts dev/shm; do
-        [ ! -e "/$pth" ] || { [ -d "/$pth" ] && mkdir "$pth" || touch "$pth"; mount --bind "/$pth" "$pth"; }
+    # Make sure filesystem superblock is owned by a mapped UID (i.e. 65534 -> 0)
+    mount -t tmpfs -o mode=0755,uid=0,gid=0,user,dev tmpfs dev
+    mkdir dev/pts dev/shm
+    mount -t devpts devpts dev/pts
+    mount -t tmpfs tmpfs dev/shm
+    for pth in dev/zero dev/null dev/full dev/random dev/urandom dev/tty dev/console; do
+        [ ! -e "/$pth" ] || { [ -d "/$pth" ] && mkdir "$pth" || touch "$pth"; mount --rbind "/$pth" "$pth"; }
     done
     ln -s /dev/pts/ptmx -t dev ptmx || true
     ln -s /proc/kcore -t dev core || true
