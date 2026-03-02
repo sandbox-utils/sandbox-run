@@ -1,24 +1,55 @@
 #!/bin/sh
 # Minimal namespace sandbox using unshare & setpriv from util-linux.
+# GH: @sandbox-utils/sandbox-run
 # shellcheck disable=SC2093,SC2317
-set -eux
+set -eu
 
 ROOT="${ROOT:-$PWD/.sandbox}"
-ROOT="${ROOT%/}"  # Strip trailing '/'
+ROOT="${ROOT%%/}"  # Strip trailing '/'
 DEBUG="${DEBUG:-}"
+
+RO_BIND="${RO_BIND-}"
+RW_BIND="${RW_BIND-}"
+
+DEFAULT_RO_BIND="${DEFAULT_RO_BIND-\
+/etc/alternatives
+/etc/hosts
+/etc/ld.so.cache
+/etc/localtime
+/etc/os-release
+/etc/pkcs11
+/etc/pki
+/etc/resolv.conf
+/etc/ssl
+/etc/timezone
+/lib
+/lib64
+/run/dbus/system_bus_socket
+/usr
+}"
+
+# ld.so.conf.d: https://containertoolbx.org/doc/#ldconfig8
+DEFAULT_RW_BIND="${DEFAULT_RW_BIND-\
+/etc/ld.so.conf.d
+}"
+
 _RS="$(printf '\036')"
 _LF="$(printf '\012')"
 pwd="$PWD"
 
-[ $# -gt 0 ] || { echo "Usage: $0 cmd [args]"; echo; echo 'Sandbox a Linux program.'; exit 1; }
+case "${1:-}" in -h|--help|-?)
+    echo "Usage: $0 [CMD [ARGS...]]"; echo; echo 'Sandbox a Linux program.'; exit 1 ;;
+esac
 
-_split_str_by_lf () { printf '%s' "$1" | case "$1" in *$_LF*) cat ;; *) tr ' ' '\n' ;; esac; }
+_split_str () { printf '%s' "$1" | case "$1" in *$_LF*) tr '\n' "$_RS" ;; *) tr ' ' "$_RS" ;; esac; }
 
 _cleanup () {
-    umount -vR "$ROOT"/*
+    mount | grep -F "$ROOT" | cut -d' ' -f3
+    umount -vR $(mount | grep -F "$ROOT" | cut -d' ' -f3) || true
+#    umount -vR "$ROOT"/* 2>&1 | grep -v 'not mounted' >&2 || true
     if [ ! "$DEBUG" ]; then
         cd "$ROOT"
-        rmdir -v .empty-* dev etc lib lib64 proc sys tmp usr || true
+        rmdir -v .empty-* dev proc sys tmp etc usr lib lib64 opt root var || true
         rm -vf bin sbin || true  # Symlinks
         rmdir -vp "${pwd#/}" || true
         cd -
@@ -38,48 +69,14 @@ _mount_path () {
 
 _sandbox_init () {
     # Prepare chroot
-    # TODO: set up overlayfs with lower=/,upper=$ROOT
+    # XXX: Ideally we would set up overlayfs with lower=/,upper=$ROOT, but for permissions ...
     mkdir -p "$ROOT"
     trap _cleanup EXIT TERM INT HUP
 
-    # Mount usr/lib
-    for pth in usr lib lib64; do
-        [ ! -e "/$pth" ] || mount -vo bind,ro "/$pth" "$pth"
-    done
-    for pth in etc/resolv.conf; do
-        [ ! -e "/$pth" ] || _mount_path "/$pth" ro
-    done
-    ln -s usr/bin -t . bin || true
-    ln -s usr/sbin -t . sbin || true
+    cd "$ROOT"
+    mkdir -p dev proc sys tmp etc usr lib lib64 opt root var .git ".$pwd"
 
-    # Mock /dev
-    # Make sure filesystem superblock is owned by a mapped UID (i.e. 65534 -> 0)
-    mount -t tmpfs -o mode=0755,uid=0,gid=0,user,dev tmpfs dev
-    mkdir dev/pts dev/shm
-    mount -t devpts devpts dev/pts
-    mount -t tmpfs tmpfs dev/shm
-    for pth in dev/zero dev/null dev/full dev/random dev/urandom dev/tty dev/console; do
-        [ ! -e "/$pth" ] || { [ -d "/$pth" ] && mkdir "$pth" || touch "$pth"; mount --rbind "/$pth" "$pth"; }
-    done
-    ln -s /dev/pts/ptmx -t dev ptmx || true
-    ln -s /proc/kcore -t dev core || true
-    ln -s /proc/self/fd -t dev fd || true
-    ln -s /proc/self/fd/0 -t dev stdin || true
-    ln -s /proc/self/fd/1 -t dev stdout || true
-    ln -s /proc/self/fd/2 -t dev stderr || true
-
-    # Mount real CWD
-    mount -v --bind "$pwd" ".$pwd"
-    # Overlay some resources with empty/null to conceal them
-    mkdir -p .empty-sandbox .empty-git
-    mount -v --bind .empty-sandbox ".$pwd/${ROOT##*/}"
-    [ ! -d "$pwd/.git" ] || mount -v --bind .empty-git ".$pwd/.git"
-    [ ! -e "$pwd/.env" ] || mount -v --bind /dev/null ".$pwd/.env"
-
-    # Status report
-    [ ! "$DEBUG" ] || tree -L1 . || true
-
-    # Init the environment
+    # Init the environment passed via fd
     set -f; IFS="$_RS"
     # shellcheck disable=SC2013
     for var in $(cat <&5); do export "${var?}"; done
@@ -92,23 +89,69 @@ _sandbox_init () {
         for var in $(grep -oP '^\w+(?>==)' "$pwd/.env"); do export "${var?}"; done
     }
 
-    # Handle RW_BIND=, RO_BIND=
-    IFS="$_LF"
-    for pth in $(_split_str_by_lf "${RW_BIND:-}"); do
-        _mount_path "$(realpath --relative-to .. "$pth")"
+    # Mock /dev
+    # Make sure filesystem superblock is owned by a mapped UID (i.e. 65534 -> 0)
+    mount -t tmpfs -o mode=0755,dev tmpfs dev
+    mkdir dev/pts dev/shm
+    mount -t devpts -o "newinstance,ptmxmode=0666" devpts dev/pts
+    mount -t tmpfs tmpfs dev/shm
+    for pth in dev/zero dev/null dev/full dev/random dev/urandom dev/tty dev/console; do
+        if [ -e "/$pth" ]; then
+            # shellcheck disable=SC2015
+            [ -d "/$pth" ] && mkdir "$pth" || touch "$pth"
+            mount -vo rbind,uid=0,gid=0,dev "/$pth" "$pth"
+        fi
     done
-    for pth in $(_split_str_by_lf "${RO_BIND:-}"); do
-        _mount_path "$(realpath --relative-to .. "$pth")" ro
-    done
-    unset IFS RO_BIND RW_BIND
+    ln -vs /dev/pts/ptmx dev/ptmx
+    ln -vs /proc/kcore dev/core
+    ln -vs /proc/self/fd dev/fd
+    ln -vs /proc/self/fd/0 dev/stdin
+    ln -vs /proc/self/fd/1 dev/stdout
+    ln -vs /proc/self/fd/2 dev/stderr
 
-    # TODO read firejail profiles
+    # Mount default dirs, usr, lib
+    IFS="$_RS"
+    for pth in $(_split_str "${DEFAULT_RW_BIND:-}"); do
+        [ ! -e "$pth" ] || _mount_path "$pth"
+    done
+    for pth in $(_split_str "${DEFAULT_RO_BIND:-}"); do
+        [ ! -e "$pth" ] || _mount_path "$pth" ro
+    done
+    unset IFS
+
+    # Mount CWD
+    mount -v --rbind "$pwd" ".$pwd"
+    # Overlay some resources with empty/null to conceal them
+    mkdir -p .empty-sandbox .empty-git
+    mount -v --bind .empty-sandbox ".$pwd/${ROOT##*/}"
+    [ ! -d "$pwd/.git" ] || mount -v --bind .empty-git ".$pwd/.git"
+    [ ! -e "$pwd/.env" ] || mount -v --bind /dev/null ".$pwd/.env"
+
+    # Handle RW_BIND=, RO_BIND=
+    IFS="$_RS"
+    for pth in $(_split_str "${RW_BIND:-}"); do
+        _mount_path "$(cd "$pwd"; realpath "$pth")"
+    done
+    for pth in $(_split_str "${RO_BIND:-}"); do
+        _mount_path "$(cd "$pwd"; realpath "$pth")" ro
+    done
+    unset IFS
+
+    # Symlinks: /bin -> /usr/bin ...
+    for pth in usr/bin usr/sbin; do
+        [ -e "${pth##*/}" ] || ln -s "$pth" "${pth##*/}"
+    done
+
+    # Don't pass these variables to sandbox
+    unset RO_BIND RW_BIND
+    unset DEFAULT_RO_BIND DEFAULT_RW_BIND
+
+    # Read firejail profile(s), if available
     [ ! -e "./firejail.profile" ] || (
         tmp="./.tmp"
         cat_profile () { [ ! -e "$1" ] || grep -E 'noblacklist|include|read-only' "$1"; }
         cat_profile "./firejail.profile" >"$tmp"
         exec 3<"$tmp"
-#        while read -r keyword pth comment comment2 <&3 || [ "$keyword" ]; do
         while read -r line <&3 || [ "$line" ]; do
             keyword="${line%% *}"
             pth="${line#* }" pth="${pth%% *}"
@@ -195,19 +238,21 @@ _sandbox_init () {
 _sandbox_payload () {
     # Inside the sandbox, run
     echo "[sandbox] uid:$(id -u) pid:$$ cwd:$PWD args: $*"
-    env | sort
+    [ ! "$DEBUG" ] || env | sort
     exec "$@"
 }
 
-[ "$1" != '--_sandbox_init' ] || { shift 1; _sandbox_init "$@"; exit $?; }
-[ "$1" != '--_sandbox_payload' ] || { shift 1; _sandbox_payload "$@"; exit $?; }
+[ "${1-}" != '--_sandbox_init' ] || { shift 1; _sandbox_init "$@"; exit $?; }
+[ "${1-}" != '--_sandbox_payload' ] || { shift 1; _sandbox_payload "$@"; exit $?; }
 
 _filter_env () {
     env -0 | grep -Eze '^('\
-'USER|LOGNAME|UID|PATH|TERM|HOME|HOSTNAME|'\
-'LANGUAGE|LANG|LC_.*?|TZ|'\
+'RO_BIND|RW_BIND|'\
+'USER|LOGNAME|UID|PATH|TERM|HOME|HOSTNAME|DISPLAY|WAYLAND_DISPLAY|'\
+'LANGUAGE|LANG|LC_[^= ]*|TZ|'\
 'https?_proxy|HTTPS?_PROXY|'\
-'CC|CFLAGS|CXXFLAGS|CPPFLAGS|LDFLAGS|LDLIBS|MAKEFLAGS)='
+'CC|CFLAGS|CXXFLAGS|CPPFLAGS|LDFLAGS|LDLIBS|MAKEFLAGS|'\
+'NODE_OPTIONS)='
 }
 
 # We switch into a root-user namespace where mount is allowed
