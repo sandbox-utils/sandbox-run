@@ -133,24 +133,59 @@ _sandbox_init () {
 
     cd -
 
-    hostname sandbox
-#    bash
-#    slirp4netns --configure --mtu=65520 --disable-host-loopback $$ tap0
+    # If no args, run default shell
+    # shellcheck disable=2015
+    if [ "$#" -eq 0 ]; then command -v bash >/dev/null 2>&1 && set bash || set sh; fi
 
-    [ "$#" -gt 0 ] || set sh;
+    # TODO: Set cgroup-based CPU use limit
+    # https://unix.stackexchange.com/questions/151883/limiting-processes-to-not-exceed-more-than-10-of-cpu-usage/193996#193996
 
-    time_offset="$(( RANOM * 117 ))"
+    # Set netns via slirp4netns
+    hostname sandbox-run
+    command -v slirp4netns >/dev/null 2>&1 && netns=--net || netns=
 
     # Switch into a nobody:nogroup namespace
-    # TODO: setpriv, keep "internet" cap
-    exec unshare \
+    keep_tty="$([ -t 0 ] && echo '/dev/tty' || echo '&0')"
+    time_offset="$(( RANOM * 117 ))"
+    # shellcheck disable=2086
+    unshare \
         --kill-child --mount-proc --mount-binfmt \
         --map-user nobody --map-group nogroup \
         --monotonic $time_offset --boottime $time_offset \
-        --ipc --mount --net --pid --uts --user --cgroup --time \
+        --ipc --mount $netns --pid --uts --user --cgroup --time \
         --keep-caps --root "$ROOT" --wd "$pwd" \
-        setpriv --bounding-set=-all --inh-caps=-all --ambient-caps=-all \
-        "$0" --_sandbox_payload "$@"
+        setpriv --bounding-set=-all,+NET_RAW \
+            --inh-caps=-all,+NET_RAW \
+            --ambient-caps=-all,+NET_RAW \
+        "$0" --_sandbox_payload "$@" <$keep_tty &
+    unshare_pid=$!
+
+    # Wait for netns configuration
+    i=0
+    while [ $i -lt 500 ]; do
+        [ ! -e "/proc/$unshare_pid/ns/net" ] || break
+        i=$((i+1))
+        sleep 0.01
+    done
+    if [ "$netns" ]; then
+        tapname="tap-pid-$unshare_pid=$(echo "$*" | tr -cs '[:alnum:]' '-')"
+        slirp4netns --configure --mtu=65520 --enable-ipv6 --enable-sandbox --disable-host-loopback \
+            "$unshare_pid" "$tapname" &
+        slirp_pid=$!
+    fi
+
+    # Wait for the sandbox payload to finish
+    wait "$unshare_pid"
+    exit_status=$?
+
+    # Clean up slirp4netns if we started it
+    if [ "$netns" ]; then
+        kill "$slirp_pid" || true
+        sleep 0.1
+        kill -KILL "$slirp_pid" || true
+    fi
+
+    exit $exit_status
 }
 
 _sandbox_payload () {
@@ -172,11 +207,12 @@ _filter_env () {
 }
 
 # We switch into a root-user namespace where mount is allowed
+# Keep --net namespace; unshare it in the next stage.
 env -i \
     unshare \
     --kill-child --mount-proc --mount-binfmt --map-root-user \
     --monotonic -1000 --boottime -1000 \
-    --ipc --mount --net --pid --uts --user --cgroup --time \
+    --ipc --mount --pid --uts --user --cgroup --time \
     "$0" --_sandbox_init "$@" \
     5<<EOF
 $(_filter_env | tr '\0' "$_RS")
