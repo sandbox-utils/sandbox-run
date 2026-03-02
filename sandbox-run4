@@ -14,6 +14,17 @@ pwd="$PWD"
 
 _split_str_by_lf () { printf '%s' "$1" | case "$1" in *$_LF*) cat ;; *) tr ' ' '\n' ;; esac; }
 
+_cleanup () {
+    umount -vR "$ROOT"/*
+    if [ ! "$DEBUG" ]; then
+        cd "$ROOT"
+        rmdir -v .empty-* dev etc lib lib64 proc sys tmp usr || true
+        rm -vf bin sbin || true  # Symlinks
+        rmdir -vp "${pwd#/}" || true
+        cd -
+    else echo "sandbox-run: rootfs workdir in \"$ROOT\"" >&2; fi
+}
+
 _mount_path () {
     path="$1" ro="${2:+,ro}"
     if [ -d "$path" ]; then
@@ -29,8 +40,7 @@ _sandbox_init () {
     # Prepare chroot
     # TODO: set up overlayfs with lower=/,upper=$ROOT
     mkdir -p "$ROOT"
-    cd "$ROOT"
-    mkdir -p dev proc sys tmp etc usr lib lib64 .git ".$pwd"
+    trap _cleanup EXIT TERM INT HUP
 
     # Mount usr/lib
     for pth in usr lib lib64; do
@@ -152,17 +162,6 @@ _sandbox_payload () {
 
 [ "$1" != '--_sandbox_init' ] || { shift 1; _sandbox_init "$@"; exit $?; }
 [ "$1" != '--_sandbox_payload' ] || { shift 1; _sandbox_payload "$@"; exit $?; }
-
-_cleanup () {
-    if [ ! "$DEBUG" ]; then
-        cd "$ROOT"
-        rmdir -v .empty-* dev etc lib lib64 proc sys tmp usr || true
-        rm -vf bin sbin || true  # Symlinks
-        rmdir -vp "${pwd#/}" || true
-        cd -
-    else echo "sandbox-run: rootfs workdir in \"$ROOT\"" >&2; fi
-}
-trap _cleanup EXIT TERM INT HUP
 
 _filter_env () {
     env -0 | grep -Eze '^('\
