@@ -4,10 +4,9 @@
 # shellcheck disable=SC2093,SC2317
 set -eu
 
-ROOT="${ROOT:-$PWD/.sandbox}"
-ROOT="${ROOT%%/}"  # Strip trailing '/'
-DEBUG="${DEBUG:-}"
-
+ROOT="${ROOT:-$PWD/.sandbox}" ROOT="${ROOT%%/}"
+VERBOSE="${VERBOSE:-}"
+CLEANUP="${CLEANUP:-}"
 RO_BIND="${RO_BIND-}"
 RW_BIND="${RW_BIND-}"
 
@@ -43,17 +42,33 @@ esac
 
 _split_str () { printf '%s' "$1" | case "$1" in *$_LF*) tr '\n' "$_RS" ;; *) tr ' ' "$_RS" ;; esac; }
 
+verbose_stdout () { if [ "$VERBOSE" ]; then cat >&2; else cat >/dev/null; fi }
+
 _cleanup () {
-    mount | grep -F "$ROOT" | cut -d' ' -f3
-    umount -vR $(mount | grep -F "$ROOT" | cut -d' ' -f3) || true
-#    umount -vR "$ROOT"/* 2>&1 | grep -v 'not mounted' >&2 || true
-    if [ ! "$DEBUG" ]; then
+    {
+        echo; echo; echo "[${0##*/}]: Cleanup ..."
+        # Clean up slirp4netns if we started it
+        if [ "$slirp_pid" ]; then
+            kill "$slirp_pid" || true
+            sleep 0.1 && kill -KILL "$slirp_pid" 2>/dev/null || true &
+        fi
+
+        umount -vR "$ROOT/dev" "$ROOT/$pwd" 2>&1
+        mount_points="$(mount | grep -F "$ROOT" | cut -d' ' -f3 | sort -r)"
+        echo "$mount_points" | xargs umount -vR 2>&1
+
         cd "$ROOT"
-        rmdir -v .empty-* dev proc sys tmp etc usr lib lib64 opt root var || true
         rm -vf bin sbin || true  # Symlinks
-        rmdir -vp "${pwd#/}" || true
+        IFS="$_RS"
+        # shellcheck disable=SC2046
+        find $(_split_str "$mount_points") -type f -empty -print0 | xargs -0 rm  # touch-ed files
+        find . -type d -empty -delete
         cd -
-    else echo "sandbox-run: rootfs workdir in \"$ROOT\"" >&2; fi
+
+        if [ "$CLEANUP" ]; then rm -rfv "$ROOT"
+        elif [ "$VERBOSE" ]; then echo "sandbox-run: rootfs workdir in \"$ROOT\"" >&2
+        fi
+    } 2>&1 | verbose_stdout
 }
 
 _mount_path () {
@@ -65,6 +80,39 @@ _mount_path () {
         touch "./$path" || true
         mount -vo "bind$ro" "$path" "./$path"
     fi
+
+}
+
+_read_firejail_config () {
+    tmp="./.tmp"
+    cat_profile () { [ ! -e "$1" ] || grep -E 'noblacklist|include|read-only' "$1"; }
+    cat_profile "./firejail.profile" >"$tmp"
+    exec 3<"$tmp"
+    while read -r line <&3 || [ "$line" ]; do
+        keyword="${line%% *}"
+        pth="${line#* }" pth="${pth%% *}"
+        echo "pth = $pth; $keyword -- $line"
+        # shellcheck disable=SC1083
+        case "$pth" in
+            *\${HOME}*) eval "pth=$pth" ;;
+            *\${PATH}*)
+                exe="${pth##*/}"
+                IFS=:; for dir in $PATH; do
+                    # shellcheck disable=SC2015
+                    [ -x "$dir/$exe" ] && pth="$dir/$exe" && break || true
+                done
+                ;;
+        esac
+        case "$keyword" in
+            include) cat_profile "$(cd /etc/firejail; realpath "$pth")" >>"$tmp"; continue ;;
+        esac
+        for path in $pth; do
+            [ "$keyword" = 'read-only' ] && ro=1 || ro=
+            _mount_path "$path" $ro
+        done
+    done
+    exec 3<&-
+    rm "$tmp"
 }
 
 _sandbox_init () {
@@ -73,112 +121,82 @@ _sandbox_init () {
     mkdir -p "$ROOT"
     trap _cleanup EXIT TERM INT HUP
 
-    cd "$ROOT"
-    mkdir -p dev proc sys tmp etc usr lib lib64 opt root var .git ".$pwd"
-
-    # Init the environment passed via fd
-    set -f; IFS="$_RS"
-    # shellcheck disable=SC2013
-    for var in $(cat <&5); do export "${var?}"; done
-    unset IFS; set +f
-
     # Source .env
     [ ! -e "$pwd/.env" ] || {
         . "$pwd/.env"
         # shellcheck disable=SC2013
         for var in $(grep -oP '^\w+(?>==)' "$pwd/.env"); do export "${var?}"; done
     }
+    # Init the environment passed via fd, which overrides .env
+    # $ VAR=1 sandbox-run cmd  # overrides VAR from .env
+    set -f; IFS="$_RS"
+    # shellcheck disable=SC2013
+    for var in $(cat <&5); do export "${var?}"; done
+    unset IFS; set +f
+    {
+        cd "$ROOT"
+        mkdir -vp dev proc sys tmp etc usr lib lib64 opt root var .git ".$pwd"
 
-    # Mock /dev
-    # Make sure filesystem superblock is owned by a mapped UID (i.e. 65534 -> 0)
-    mount -t tmpfs -o mode=0755,dev tmpfs dev
-    mkdir dev/pts dev/shm
-    mount -t devpts -o "newinstance,ptmxmode=0666" devpts dev/pts
-    mount -t tmpfs tmpfs dev/shm
-    for pth in dev/zero dev/null dev/full dev/random dev/urandom dev/tty dev/console; do
-        if [ -e "/$pth" ]; then
-            # shellcheck disable=SC2015
-            [ -d "/$pth" ] && mkdir "$pth" || touch "$pth"
-            mount -vo rbind,uid=0,gid=0,dev "/$pth" "$pth"
-        fi
-    done
-    ln -vs /dev/pts/ptmx dev/ptmx
-    ln -vs /proc/kcore dev/core
-    ln -vs /proc/self/fd dev/fd
-    ln -vs /proc/self/fd/0 dev/stdin
-    ln -vs /proc/self/fd/1 dev/stdout
-    ln -vs /proc/self/fd/2 dev/stderr
+        # Mock /dev
+        # Make sure filesystem superblock is owned by a mapped UID (i.e. 65534 -> 0)
+        mount -t tmpfs -vo mode=0755,dev tmpfs dev
+        mkdir -vp dev/pts dev/shm
+        mount -t devpts -o "newinstance,ptmxmode=0666" devpts dev/pts
+        mount -t tmpfs tmpfs dev/shm
+        for pth in dev/zero dev/null dev/full dev/random dev/urandom dev/tty dev/console; do
+            if [ -e "/$pth" ]; then
+                # shellcheck disable=SC2015
+                [ -d "/$pth" ] && mkdir "$pth" || touch "$pth"
+                mount -vo rbind,uid=0,gid=0,dev "/$pth" "$pth"
+            fi
+        done
+        ln -vs /dev/pts/ptmx dev/ptmx
+        ln -vs /proc/kcore dev/core
+        ln -vs /proc/self/fd dev/fd
+        ln -vs /proc/self/fd/0 dev/stdin
+        ln -vs /proc/self/fd/1 dev/stdout
+        ln -vs /proc/self/fd/2 dev/stderr
 
-    # Mount default dirs, usr, lib
-    IFS="$_RS"
-    for pth in $(_split_str "${DEFAULT_RW_BIND:-}"); do
-        [ ! -e "$pth" ] || _mount_path "$pth"
-    done
-    for pth in $(_split_str "${DEFAULT_RO_BIND:-}"); do
-        [ ! -e "$pth" ] || _mount_path "$pth" ro
-    done
-    unset IFS
+        # Mount default dirs, usr, lib
+        IFS="$_RS"
+        for pth in $(_split_str "$DEFAULT_RW_BIND"); do
+            [ ! -e "$pth" ] || _mount_path "$pth"
+        done
+        for pth in $(_split_str "$DEFAULT_RO_BIND"); do
+            [ ! -e "$pth" ] || _mount_path "$pth" ro
+        done
+        unset IFS
 
-    # Mount CWD
-    mount -v --rbind "$pwd" ".$pwd"
-    # Overlay some resources with empty/null to conceal them
-    mkdir -p .empty-sandbox .empty-git
-    mount -v --bind .empty-sandbox ".$pwd/${ROOT##*/}"
-    [ ! -d "$pwd/.git" ] || mount -v --bind .empty-git ".$pwd/.git"
-    [ ! -e "$pwd/.env" ] || mount -v --bind /dev/null ".$pwd/.env"
+        # Mount CWD
+        mount -v --rbind "$pwd" ".$pwd"
+        # Overlay some resources with empty/null to conceal them
+        mkdir -vp .empty-sandbox .empty-git
+        mount -v --bind .empty-sandbox ".$pwd/${ROOT##*/}"
+        [ ! -d "$pwd/.git" ] || mount -v --bind .empty-git ".$pwd/.git"
+        [ ! -e "$pwd/.env" ] || mount -v --bind /dev/null ".$pwd/.env"
 
-    # Handle RW_BIND=, RO_BIND=
-    IFS="$_RS"
-    for pth in $(_split_str "${RW_BIND:-}"); do
-        _mount_path "$(cd "$pwd"; realpath "$pth")"
-    done
-    for pth in $(_split_str "${RO_BIND:-}"); do
-        _mount_path "$(cd "$pwd"; realpath "$pth")" ro
-    done
-    unset IFS
+        # Handle RW_BIND=, RO_BIND=
+        IFS="$_RS"
+        for pth in $(_split_str "${RW_BIND:-}"); do
+            _mount_path "$(cd "$pwd"; realpath "$pth")"
+        done
+        for pth in $(_split_str "${RO_BIND:-}"); do
+            _mount_path "$(cd "$pwd"; realpath "$pth")" ro
+        done
+        unset IFS
 
-    # Symlinks: /bin -> /usr/bin ...
-    for pth in usr/bin usr/sbin; do
-        [ -e "${pth##*/}" ] || ln -s "$pth" "${pth##*/}"
-    done
+        # Symlinks: /bin -> /usr/bin ...
+        for pth in usr/bin usr/sbin; do
+            [ -e "${pth##*/}" ] || ln -vs "$pth" "${pth##*/}"
+        done
+
+        # Read firejail profile(s), if available
+        [ ! -e "./firejail.profile" ] || _read_firejail_config
+    } 2>&1 | verbose_stdout
 
     # Don't pass these variables to sandbox
     unset RO_BIND RW_BIND
     unset DEFAULT_RO_BIND DEFAULT_RW_BIND
-
-    # Read firejail profile(s), if available
-    [ ! -e "./firejail.profile" ] || (
-        tmp="./.tmp"
-        cat_profile () { [ ! -e "$1" ] || grep -E 'noblacklist|include|read-only' "$1"; }
-        cat_profile "./firejail.profile" >"$tmp"
-        exec 3<"$tmp"
-        while read -r line <&3 || [ "$line" ]; do
-            keyword="${line%% *}"
-            pth="${line#* }" pth="${pth%% *}"
-            echo "pth = $pth; $keyword -- $line"
-            case "$pth" in
-                *\${HOME}*) eval "pth=$pth" ;;
-                *\${PATH}*)
-                    exe="${pth##*/}"
-                    IFS=:; for dir in $PATH; do
-                        # shellcheck disable=SC2015
-                        [ -x "$dir/$exe" ] && pth="$dir/$exe" && break || true
-                    done
-                    ;;
-            esac
-            case "$keyword" in
-                include) cat_profile "$(cd /etc/firejail; realpath "$pth")" >>"$tmp"; continue ;;
-            esac
-            for path in $pth; do
-                [ "$keyword" = 'read-only' ] && ro=1 || ro=
-                _mount_path "$path" $ro
-            done
-        done
-        exec 3<&-
-        rm "$tmp"
-    )
-
-    cd -
 
     # If no args, run default shell
     # shellcheck disable=2015
@@ -215,30 +233,26 @@ _sandbox_init () {
         sleep 0.01
     done
     if [ "$netns" ]; then
+        fifo="$(mktemp -u)"; mkfifo "$fifo"
         tapname="tap-pid-$unshare_pid=$(echo "$*" | tr -cs '[:alnum:]' '-')"
         slirp4netns --configure --mtu=65520 --enable-ipv6 --enable-sandbox --disable-host-loopback \
-            "$unshare_pid" "$tapname" &
+            "$unshare_pid" "$tapname" >"$fifo" 2>&1 &
         slirp_pid=$!
+        verbose_stdout <"$fifo" &
+        rm "$fifo"
     fi
 
     # Wait for the sandbox payload to finish
     wait "$unshare_pid"
     exit_status=$?
 
-    # Clean up slirp4netns if we started it
-    if [ "$netns" ]; then
-        kill "$slirp_pid" || true
-        sleep 0.1
-        kill -KILL "$slirp_pid" || true
-    fi
-
     exit $exit_status
 }
 
 _sandbox_payload () {
     # Inside the sandbox, run
-    echo "[sandbox] uid:$(id -u) pid:$$ cwd:$PWD args: $*"
-    [ ! "$DEBUG" ] || env | sort
+    echo "[${0##*/}] uid:$(id -u) pid:$$ cwd:$PWD args: $*"
+    [ ! "$VERBOSE" ] || env | sort
     exec "$@"
 }
 
@@ -247,7 +261,7 @@ _sandbox_payload () {
 
 _filter_env () {
     env -0 | grep -Eze '^('\
-'RO_BIND|RW_BIND|'\
+'VERBOSE|CLEANUP|RO_BIND|RW_BIND|DEFAULT_RO_BIND|DEFAULT_RW_BIND|'\
 'USER|LOGNAME|UID|PATH|TERM|HOME|HOSTNAME|DISPLAY|WAYLAND_DISPLAY|'\
 'LANGUAGE|LANG|LC_[^= ]*|TZ|'\
 'https?_proxy|HTTPS?_PROXY|'\
