@@ -72,16 +72,23 @@ _cleanup () {
 }
 
 _mount_path () {
-    path="$1" ro="${2:+,ro}"
-    if [ -d "$path" ]; then
-        mount --mkdir -vo "rbind${ro:+,ro=recursive}" "$path" "./$path"
-    elif [ -e "$path" ]; then
-        mkdir -p "./${path%/*}"
-        touch "./$path" || true
-        mount -vo "bind$ro" "$path" "./$path"
+    src="$1" dst="${2:-$1}" ro="${3:+,ro}"
+    if [ -d "$src" ]; then
+        mount --mkdir -vo "rbind${ro:+,ro=recursive}" "$src" ".$dst"
+    elif [ -e "$src" ]; then
+        mkdir -p ".${dst%/*}"
+        touch ".$dst" || true
+        mount -vo "bind$ro" "$src" ".$dst"
     fi
-
 }
+
+_mount_bind () (
+    spec="$1" ro="${2:-}"
+    # shellcheck disable=SC2086
+    _mount_path \
+        "$(cd "$pwd"; realpath "${spec%%:*}")" \
+        "$(cd "$pwd"; realpath "${spec#*:}")" $ro
+)
 
 _read_firejail_config () {
     tmp="./.tmp"
@@ -108,7 +115,7 @@ _read_firejail_config () {
         esac
         for path in $pth; do
             [ "$keyword" = 'read-only' ] && ro=1 || ro=
-            _mount_path "$path" $ro
+            _mount_path "$path" '' $ro
         done
     done
     exec 3<&-
@@ -160,10 +167,10 @@ _sandbox_init () {
         # Mount default dirs, usr, lib
         IFS="$_RS"
         for pth in $(_split_str "$DEFAULT_RW_BIND"); do
-            [ ! -e "$pth" ] || _mount_path "$pth"
+            [ ! -e "$pth" ] || _mount_path "$pth" ''
         done
         for pth in $(_split_str "$DEFAULT_RO_BIND"); do
-            [ ! -e "$pth" ] || _mount_path "$pth" ro
+            [ ! -e "$pth" ] || _mount_path "$pth" '' ro
         done
         unset IFS
 
@@ -182,10 +189,10 @@ _sandbox_init () {
         # Handle RW_BIND=, RO_BIND=
         IFS="$_RS"
         for pth in $(_split_str "${RW_BIND:-}"); do
-            _mount_path "$(cd "$pwd"; realpath "$pth")"
+            _mount_bind "$pth"
         done
         for pth in $(_split_str "${RO_BIND:-}"); do
-            _mount_path "$(cd "$pwd"; realpath "$pth")" ro
+            _mount_bind "$pth" ro
         done
         unset IFS
 
