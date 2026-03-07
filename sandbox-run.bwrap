@@ -120,7 +120,7 @@ bwrap \
     --symlink /run /var/run \
     --symlink /tmp /var/tmp \
     --symlink /usr/bin /bin \
-    --symlink /usr/bin /sbin \
+    --symlink /usr/sbin /sbin \
     --dev-bind-try /dev/fuse /dev/fuse \
     --ro-bind "$bin" "$bin" \
     $(set +x; for path in $paths; do [ ! -e "$path" ] || printf -- '--ro-bind-try %s %s ' "$path" "$path"; done) \
