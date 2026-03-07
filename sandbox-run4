@@ -167,6 +167,10 @@ _sandbox_init () {
         done
         unset IFS
 
+        # /etc
+        getent group nogroup > etc/group
+        getent passwd root "$USER" > etc/passwd
+
         # Mount CWD
         mount -v --rbind "$pwd" ".$pwd"
         # Overlay some resources with empty/null to conceal them
@@ -215,7 +219,7 @@ _sandbox_init () {
     # shellcheck disable=2086
     unshare \
         --kill-child --mount-proc --mount-binfmt \
-        --map-user nobody --map-group nogroup \
+        --map-user "$USER" --map-group nogroup \
         --monotonic $time_offset --boottime $time_offset \
         --ipc --mount $netns --pid --uts --user --cgroup --time \
         --keep-caps --root "$ROOT" --wd "$pwd" \
