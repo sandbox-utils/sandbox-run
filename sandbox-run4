@@ -55,13 +55,13 @@ _cleanup () {
 
         umount -vR "$ROOT/dev" "$ROOT/$pwd" 2>&1
         mount_points="$(mount | grep -F "$ROOT" | cut -d' ' -f3 | sort -r)"
-        echo "$mount_points" | xargs umount -vR 2>&1
+        echo "$mount_points" | xargs -r umount -vR 2>&1
 
         cd "$ROOT"
         rm -vf bin sbin || true  # Symlinks
         IFS="$_RS"
         # shellcheck disable=SC2046
-        find $(_split_str "$mount_points") -type f -empty -print0 | xargs -0 rm  # touch-ed files
+        find $(_split_str "$mount_points") -type f -empty -print0 | xargs -0r rm  # touch-ed files
         find . -type d -empty -delete
         cd -
 
@@ -183,8 +183,10 @@ _sandbox_init () {
         # Overlay some resources with empty/null to conceal them
         mkdir -vp .empty-sandbox .empty-git
         mount -v --bind .empty-sandbox ".$pwd/${ROOT##*/}"
-        [ ! -d "$pwd/.git" ] || mount -v --bind .empty-git ".$pwd/.git"
-        [ ! -e "$pwd/.env" ] || mount -v --bind /dev/null ".$pwd/.env"
+        find "$pwd" -path "$ROOT" -prune -o -type d -name '.git' -print0 |
+            xargs -0r mount -v --bind .empty-git
+        find "$pwd" -path "$ROOT" -prune -o -type f -name '.env' -print0 |
+            xargs -0r mount -v --bind /dev/null
 
         # Handle RW_BIND=, RO_BIND=
         IFS="$_RS"
