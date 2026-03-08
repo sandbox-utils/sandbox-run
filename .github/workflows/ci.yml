@@ -9,22 +9,16 @@ on:
 
 jobs:
   test:
-    timeout-minutes: 5
+    timeout-minutes: 3
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
       - run: shellcheck -S warning sandbox-run tests/*.sh
-      - run: sudo apt-get remove man-db
       - run: |
-          # https://github.com/DevToys-app/DevToys/issues/1373
-          sudo apt install apparmor-profiles
-          sudo ln -s /usr/share/apparmor/extra-profiles/bwrap-userns-restrict /etc/apparmor.d/bwrap
-          sudo apparmor_parser /etc/apparmor.d/bwrap
-          # Alternative:
+          sudo sysctl -w kernel.unprivileged_userns_clone=1
           # sudo sysctl -w kernel.apparmor_restrict_unprivileged_unconfined=1
           # sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=1
-      - run: sudo apt-get install bubblewrap tree
-      - run: sudo ldconfig --verbose
+      - run: sudo apt-get install tree man-db-
       - run: time bash tests/smoke-test.sh
       - run: time bash tests/test-bwrap-opts.sh
       - run: time bash tests/test-env-vars.sh
