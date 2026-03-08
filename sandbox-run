@@ -46,6 +46,7 @@ _cleanup () {
         # Clean up slirp4netns if we started it
         if [ "$slirp_pid" ]; then
             kill "$slirp_pid" || true
+            # shellcheck disable=SC2015
             sleep 0.1 && kill -KILL "$slirp_pid" 2>/dev/null || true &
         fi
 
@@ -54,6 +55,7 @@ _cleanup () {
         echo "$mount_points" | xargs -r umount -vR 2>&1
 
         cd "$ROOT"
+        [ ! "${seccomp_filter_cleanup:-}" ] || rm -v "seccomp_filter.bin"
         rm -vf bin sbin || true  # Symlinks
         IFS="$_RS"
         # shellcheck disable=SC2046
@@ -87,6 +89,74 @@ _mount_bind () (
         "$(cd "$pwd"; realpath "${spec%%:*}")" \
         "$(cd "$pwd"; realpath "${spec#*:}")" $ro
 )
+
+_generate_seccomp_filter () {
+    command -v enosys >/dev/null || return
+    tmp1="$(mktemp)" tmp2="$(mktemp)"
+    enosys --list | awk '{ print $2 }' | sort -u > "$tmp1"
+    # "Dangerous" syscalls. File a bug if the list seems too strict.
+    echo "\
+add_key
+adjtimex
+afs_syscall
+bpf
+clock_adjtime
+clock_settime
+create_module
+delete_module
+finit_module
+get_kernel_syms
+init_module
+ioperm
+iopl
+io_uring_enter
+io_uring_register
+io_uring_setup
+kcmp
+kexec_file_load
+kexec_load
+keyctl
+lookup_dcookie
+mbind
+migrate_pages
+mknod
+mknodat
+mlockall
+modify_ldt
+move_pages
+nfsservctl
+perf_event_open
+process_vm_readv
+process_vm_writev
+ptrace
+query_module
+reboot
+request_key
+sched_setaffinity
+sched_setattr
+sched_setparam
+sched_setscheduler
+security
+setdomainname
+sethostname
+set_mempolicy
+set_mempolicy_home_node
+settimeofday
+swapoff
+swapon
+sysfs
+syslog
+tuxcall
+uselib
+userfaultfd
+vhangup
+vserver" | sort -u > "$tmp2"
+    # shellcheck disable=SC2046
+    enosys --dump="$ROOT/seccomp_filter.bin" \
+        $(comm -12 "$tmp1" "$tmp2" | awk '{ printf " --syscall %s", $0}')
+    rm "$tmp1" "$tmp2"
+    seccomp_filter_cleanup=1
+}
 
 _read_firejail_config () {
     tmp="./.tmp"
@@ -210,6 +280,9 @@ _sandbox_init () {
         [ ! -e "./firejail.profile" ] || _read_firejail_config
     } 2>&1 | verbose_stdout
 
+    # Install seccomp filter if available
+    [ -e "$ROOT/seccomp_filter" ] || _generate_seccomp_filter
+
     # Don't pass these variables to sandbox
     unset RO_BIND RW_BIND
     unset DEFAULT_RO_BIND DEFAULT_RW_BIND
@@ -239,6 +312,7 @@ _sandbox_init () {
     # Switch into a nobody:nogroup namespace
     keep_tty="$([ -t 0 ] && echo '/dev/tty' || echo '&0')"
     time_offset="$(( RANOM * 117 ))"
+    [ -e "$ROOT/seccomp_filter.bin" ] && seccomp_filter="/seccomp_filter.bin" || seccomp_filter=
     # shellcheck disable=2086
     unshare \
         --kill-child --mount-proc --mount-binfmt \
@@ -246,7 +320,8 @@ _sandbox_init () {
         --monotonic $time_offset --boottime $time_offset \
         --ipc --mount $netns --pid --uts --user --cgroup --time \
         --keep-caps --root "$ROOT" --wd "$pwd" \
-        setpriv --bounding-set=-all,+NET_RAW \
+        setpriv ${seccomp_filter:+--seccomp-filter "$seccomp_filter"} \
+            --bounding-set=-all,+NET_RAW \
             --inh-caps=-all,+NET_RAW \
             --ambient-caps=-all,+NET_RAW \
         "$0" --_sandbox_payload "$@" <$keep_tty &
