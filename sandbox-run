@@ -311,13 +311,13 @@ _sandbox_init () {
 
     # Switch into a nobody:nogroup namespace
     keep_tty="$([ -t 0 ] && echo '/dev/tty' || echo '&0')"
-    time_offset="$(( RANOM * 117 ))"
+    random_time_offset="$(( ($(date +%s) % 32768) * ($(date +%s) % 101) ))"
     [ -e "$ROOT/seccomp_filter.bin" ] && seccomp_filter="/seccomp_filter.bin" || seccomp_filter=
     # shellcheck disable=2086
     unshare \
         --kill-child --mount-proc --mount-binfmt \
         --map-user "$USER" --map-group nogroup \
-        --monotonic $time_offset --boottime $time_offset \
+        --monotonic $random_time_offset --boottime $random_time_offset \
         --ipc --mount $netns --pid --uts --user --cgroup --time \
         --keep-caps --root "$ROOT" --wd "$pwd" \
         setpriv ${seccomp_filter:+--seccomp-filter "$seccomp_filter"} \
