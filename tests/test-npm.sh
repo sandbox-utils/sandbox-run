@@ -7,4 +7,4 @@ sandbox-run npm install dotenv
 
 # Assert files exist
 test -d node_modules/dotenv*
-test -d .sandbox*/.npm
+test -d .sandbox*/home/*/.npm

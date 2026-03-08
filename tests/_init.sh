@@ -8,14 +8,11 @@ export PS4
 set -eux
 
 LC_ALL=C
-
-assert_is_sandboxed () { "$@" 2>&1 | grep -q 'sandbox-venv/wrapper: exec bwrap'; }
-
 tmpdir="$(mktemp -d -t sandbox-run_test-XXXXXXX)"
 # shellcheck disable=SC2064
 trap "tree -a -L 4 --si --du '$tmpdir'; rm -fr '$tmpdir'; trap - INT HUP EXIT TERM" INT HUP TERM EXIT
 if [ ! "${CI-}" ]; then case "$tmpdir" in /tmp*|/var/*) ;; *) exit 9 ;; esac; fi
 
 PATH="$(pwd):$PATH"
-HOME="$tmpdir"
+#HOME="$tmpdir"
 cd "$tmpdir"

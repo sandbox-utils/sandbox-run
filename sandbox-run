@@ -36,10 +36,6 @@ _RS="$(printf '\036')"
 _LF="$(printf '\012')"
 pwd="$PWD"
 
-case "${1:-}" in -h|--help|-?)
-    echo "Usage: $0 [CMD [ARGS...]]"; echo; echo 'Sandbox a Linux program.'; exit 1 ;;
-esac
-
 _split_str () { printf '%s' "$1" | case "$1" in *$_LF*) tr '\n' "$_RS" ;; *) tr ' ' "$_RS" ;; esac; }
 
 verbose_stdout () { if [ "$VERBOSE" ]; then cat >&2; else cat >/dev/null; fi }
@@ -64,6 +60,7 @@ _cleanup () {
         find $(_split_str "$mount_points") -type f -empty -print0 | xargs -0r rm  # touch-ed files
         rm -vf ./etc/passwd ./etc/group  # Created /etc
         find . -type d -empty -delete
+        ! command -v tree 2>/dev/null || tree --dirsfirst -hfaL4 .
         cd -
 
         if [ "$CLEANUP" ]; then rm -rfv "$ROOT"
@@ -133,7 +130,7 @@ _sandbox_init () {
     [ ! -e "$pwd/.env" ] || {
         . "$pwd/.env"
         # shellcheck disable=SC2013
-        for var in $(grep -oP '^\w+(?>==)' "$pwd/.env"); do export "${var?}"; done
+        for var in $(grep -oP '^\w+' "$pwd/.env"); do export "${var?}"; done
     }
     # Init the environment passed via fd, which overrides .env
     # $ VAR=1 sandbox-run cmd  # overrides VAR from .env
@@ -141,9 +138,11 @@ _sandbox_init () {
     # shellcheck disable=SC2013
     for var in $(cat <&5); do export "${var?}"; done
     unset IFS; set +f
+
+    self="$(case "$0" in /*) echo "$0" ;; *) realpath "$0" ;; esac)"
     {
         cd "$ROOT"
-        mkdir -vp dev proc sys tmp etc usr lib lib64 opt root var .git ".$pwd"
+        mkdir -vp dev proc sys tmp etc usr lib lib64 opt root var .git ".$HOME" ".$pwd"
 
         # Mock /dev
         # Make sure filesystem superblock is owned by a mapped UID (i.e. 65534 -> 0)
@@ -174,6 +173,9 @@ _sandbox_init () {
             [ ! -e "$pth" ] || _mount_path "$pth" '' ro
         done
         unset IFS
+
+        # sandbox-run script itself required for payload stage
+        [ -x ".$self" ] || _mount_bind "$self" ro
 
         # /etc
         getent group nogroup > etc/group
@@ -281,9 +283,6 @@ _sandbox_payload () {
     exec "$@"
 }
 
-[ "${1-}" != '--_sandbox_init' ] || { shift 1; _sandbox_init "$@"; exit $?; }
-[ "${1-}" != '--_sandbox_payload' ] || { shift 1; _sandbox_payload "$@"; exit $?; }
-
 _filter_env () {
     env -0 | grep -Eze '^('\
 'VERBOSE|CLEANUP|RO_BIND|RW_BIND|DEFAULT_RO_BIND|DEFAULT_RW_BIND|'\
@@ -293,6 +292,17 @@ _filter_env () {
 'CC|CFLAGS|CXXFLAGS|CPPFLAGS|LDFLAGS|LDLIBS|MAKEFLAGS|'\
 'NODE_OPTIONS)='
 }
+
+case "${1:-}" in
+    --_sandbox_init) shift 1; _sandbox_init "$@"; exit $?; ;;
+    --_sandbox_payload) shift 1; _sandbox_payload "$@"; exit $?; ;;
+    -h|--help|-?)
+        if [ "${0##*/}" = 'sandbox-run' ]; then  # Else: --help refers to "npm"
+            echo "Usage: $0 [CMD [ARGS...]]"; echo
+            echo 'Sandbox a Linux program. https://github.com/sandbox-utils/sandbox-run'
+            exit 1
+        fi ;;
+esac
 
 # We switch into a root-user namespace where mount is allowed
 # Keep --net namespace; unshare it in the next stage.
