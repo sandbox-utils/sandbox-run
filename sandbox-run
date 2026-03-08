@@ -62,6 +62,7 @@ _cleanup () {
         IFS="$_RS"
         # shellcheck disable=SC2046
         find $(_split_str "$mount_points") -type f -empty -print0 | xargs -0r rm  # touch-ed files
+        rm -vf ./etc/passwd ./etc/group  # Created /etc
         find . -type d -empty -delete
         cd -
 
