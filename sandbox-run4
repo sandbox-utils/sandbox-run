@@ -211,9 +211,20 @@ _sandbox_init () {
     unset RO_BIND RW_BIND
     unset DEFAULT_RO_BIND DEFAULT_RW_BIND
 
-    # If no args, run default shell
-    # shellcheck disable=2015
-    if [ "$#" -eq 0 ]; then command -v bash >/dev/null 2>&1 && set bash || set sh; fi
+    # Support symlinks e.g. ./local/bin/npm -> /usr/bin/sandbox-run
+    if [ "${0##*/}" != 'sandbox-run' ]; then
+        IFS=:
+        for d in ${PATH:-/usr/local/bin:/usr/bin:/bin}; do
+            p="$d/${0##*/}"
+            # shellcheck disable=SC2015
+            [ "$0" != "$p" ] && [ -x "$p" ] && set "$p" "$@" && break || true
+        done
+        unset IFS
+    elif [ "$#" -eq 0 ]; then
+        # If no args, run default shell
+        # shellcheck disable=2015
+        command -v bash >/dev/null 2>&1 && set bash || set sh
+    fi
 
     # TODO: Set cgroup-based CPU use limit
     # https://unix.stackexchange.com/questions/151883/limiting-processes-to-not-exceed-more-than-10-of-cpu-usage/193996#193996
