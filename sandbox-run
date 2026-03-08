@@ -217,7 +217,7 @@ _sandbox_init () {
         # Mock /dev
         # Make sure filesystem superblock is owned by a mapped UID (i.e. 65534 -> 0)
         mount -t tmpfs -vo mode=0755,dev tmpfs dev
-        mkdir -vp dev/pts dev/shm
+        mkdir -vp dev/pts dev/shm dev/fd
         mount -t devpts -o "newinstance,ptmxmode=0666" devpts dev/pts
         mount -t tmpfs tmpfs dev/shm
         for pth in dev/zero dev/null dev/full dev/random dev/urandom dev/tty dev/console; do
@@ -233,6 +233,9 @@ _sandbox_init () {
         ln -vs /proc/self/fd/0 dev/stdin
         ln -vs /proc/self/fd/1 dev/stdout
         ln -vs /proc/self/fd/2 dev/stderr
+        for i in 0 1 2; do
+            ln -vs /proc/self/fd/$i dev/fd/$i
+        done
 
         # Mount default dirs, usr, lib
         IFS="$_RS"
@@ -310,7 +313,7 @@ _sandbox_init () {
     command -v slirp4netns >/dev/null 2>&1 && netns=--net || netns=
 
     # Switch into a nobody:nogroup namespace
-    keep_tty="$([ -t 0 ] && echo '/dev/tty' || echo '&0')"
+    [ -t 0 ] && keep_tty='/dev/tty' || keep_tty='/dev/fd/0'
     random_time_offset="$(( ($(date +%s) % 32768) * ($(date +%s) % 101) ))"
     [ -e "$ROOT/seccomp_filter.bin" ] && seccomp_filter="/seccomp_filter.bin" || seccomp_filter=
     # shellcheck disable=2086
@@ -324,7 +327,7 @@ _sandbox_init () {
             --bounding-set=-all,+NET_RAW \
             --inh-caps=-all,+NET_RAW \
             --ambient-caps=-all,+NET_RAW \
-        "$0" --_sandbox_payload "$@" <$keep_tty &
+        "$0" --_sandbox_payload "$@" <"$keep_tty" &
     unshare_pid=$!
 
     # Wait for netns configuration
