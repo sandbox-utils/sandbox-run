@@ -44,7 +44,7 @@ _cleanup () {
     {
         echo; echo; echo "[${0##*/}]: Cleanup ..."
         # Clean up slirp4netns if we started it
-        if [ "$slirp_pid" ]; then
+        if [ "${slirp_pid-}" ]; then
             kill "$slirp_pid" || true
             # shellcheck disable=SC2015
             sleep 0.1 && kill -KILL "$slirp_pid" 2>/dev/null || true &
@@ -56,6 +56,7 @@ _cleanup () {
 
         cd "$ROOT"
         [ ! "${seccomp_filter_cleanup:-}" ] || rm -v "seccomp_filter.bin"
+        [ ! "${slirp_socket-}" ] || rm -vf "$slirp_socket" || true
         rm -vf bin sbin || true  # Symlinks
         IFS="$_RS"
         # shellcheck disable=SC2046
@@ -330,7 +331,7 @@ _sandbox_init () {
         "$0" --_sandbox_payload "$@" <"$keep_tty" &
     unshare_pid=$!
 
-    # Wait for netns configuration
+    # Netns configuration
     i=0
     while [ $i -lt 500 ]; do
         [ ! -e "/proc/$unshare_pid/ns/net" ] || break
@@ -340,7 +341,9 @@ _sandbox_init () {
     if [ "$netns" ]; then
         fifo="$(mktemp -u)"; mkfifo "$fifo"
         tapname="tap-pid-$unshare_pid=$(echo "$*" | tr -cs '[:alnum:]' '-')"
+        [ "${PORTS:-}" ] && slirp_socket="$ROOT/slirp4netns.sock" || slirp_socket=
         slirp4netns --configure --mtu=65520 --enable-ipv6 --enable-sandbox --disable-host-loopback \
+            ${slirp_socket:+--api-socket "$slirp_socket"} \
             "$unshare_pid" "$tapname" >"$fifo" 2>&1 &
         slirp_pid=$!
         verbose_stdout <"$fifo" &
@@ -357,13 +360,24 @@ _sandbox_init () {
 _sandbox_payload () {
     # Inside the sandbox, run
     echo "[${0##*/}] uid:$(id -u) pid:$$ cwd:$PWD args: $*"
+
+    # Set up port forwarding
+    [ ! "${PORTS-}" ] || [ -e /slirp4netns.sock ] || ! command -v slirp4netns >/dev/null 2>&1
+    for spec in $(echo "${PORTS-}" | tr ',' ' '); do
+        host_port="${spec%%:*}" t=${spec#*:} guest_port=${t%%/*}
+        proto=${t#"$guest_port"} proto=${proto#/}
+        printf '{"execute":"add_hostfwd","arguments":{"proto":"%s","host_port":%d,"guest_port":%d}}' "${proto:-tcp}" "$host_port" "$guest_port" |
+            nc -w 1 -U /slirp4netns.sock
+    done
+    unset PORTS
+
     [ ! "$VERBOSE" ] || env | sort
     exec "$@"
 }
 
 _filter_env () {
     env -0 | grep -Eze '^('\
-'VERBOSE|CLEANUP|RO_BIND|RW_BIND|DEFAULT_RO_BIND|DEFAULT_RW_BIND|'\
+'VERBOSE|CLEANUP|RO_BIND|RW_BIND|DEFAULT_RO_BIND|DEFAULT_RW_BIND|PORTS|'\
 'USER|LOGNAME|UID|PATH|TERM|HOME|HOSTNAME|DISPLAY|WAYLAND_DISPLAY|'\
 'LANGUAGE|LANG|LC_[^= ]*|TZ|'\
 'https?_proxy|HTTPS?_PROXY|'\
