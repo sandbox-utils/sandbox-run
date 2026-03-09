@@ -317,15 +317,17 @@ _sandbox_init () {
     [ -t 0 ] && keep_tty='/dev/tty' || keep_tty='/dev/fd/0'
     random_time_offset="$(( ($(date +%s) % 32768) * ($(date +%s) % 101) ))"
     [ -e "$ROOT/seccomp_filter.bin" ] && seccomp_filter="/seccomp_filter.bin" || seccomp_filter=
+    # If root, avoid userns (permission problems). Also retain some caps.
+    [ "$_SANDBOX_ROOT" ] && caps=',+DAC_OVERRIDE,+NET_BIND_SERVICE' args= ||
+        args="--user --map-user $USER --mount-binfmt" caps=
+    unset _SANDBOX_ROOT
     # shellcheck disable=2086
-    unshare \
-        --kill-child --mount-proc --mount-binfmt \
-        --map-user "$USER" --map-group nogroup \
+    unshare $args --kill-child --mount-proc \
         --monotonic $random_time_offset --boottime $random_time_offset \
-        --ipc --mount $netns --pid --uts --user --cgroup --time \
+        --ipc --mount $netns --pid --uts --cgroup --time \
         --keep-caps --root "$ROOT" --wd "$pwd" \
         setpriv ${seccomp_filter:+--seccomp-filter "$seccomp_filter"} \
-            --bounding-set=-all,+NET_RAW \
+            --bounding-set=-all,+NET_RAW$caps \
             --inh-caps=-all,+NET_RAW \
             --ambient-caps=-all,+NET_RAW \
         "$0" --_sandbox_payload "$@" <"$keep_tty" &
@@ -398,11 +400,14 @@ esac
 
 # We switch into a root-user namespace where mount is allowed
 # Keep --net namespace; unshare it in the next stage.
-env -i \
-    unshare \
-    --kill-child --mount-proc --mount-binfmt --map-root-user \
+# Don't userns if already root, avoid permission problems.
+[ "$(id -u)" = 0 ] && _SANDBOX_ROOT=1 args= ||
+    args='--user --map-root-user --mount-binfmt' _SANDBOX_ROOT=
+# shellcheck disable=SC2086
+env -i _SANDBOX_ROOT=$_SANDBOX_ROOT \
+    unshare $args --kill-child --mount-proc \
     --monotonic -1000 --boottime -1000 \
-    --ipc --mount --pid --uts --user --cgroup --time \
+    --ipc --mount --pid --uts --cgroup --time \
     "$0" --_sandbox_init "$@" \
     5<<EOF
 $(_filter_env | tr '\0' "$_RS")
