@@ -1,7 +1,7 @@
 #!/bin/sh
 set -eu
 
-. "${0%/*}/_init.sh"
+. "${0%/*}/.init.sh"
 
 trap 'kill -KILL $(jobs -p) 2>/dev/null || true' EXIT INT HUP TERM
 

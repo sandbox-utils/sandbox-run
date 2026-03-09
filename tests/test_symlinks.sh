@@ -1,7 +1,7 @@
 #!/bin/sh
 set -eu
 
-. "${0%/*}/_init.sh"
+. "${0%/*}/.init.sh"
 
 ln -s "$(command -v sandbox-run)" npm
 PATH="$(pwd):$PATH"

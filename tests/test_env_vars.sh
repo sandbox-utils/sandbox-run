@@ -1,7 +1,7 @@
 #!/bin/sh
 set -eu
 
-. "${0%/*}/_init.sh"
+. "${0%/*}/.init.sh"
 
 
 MAKEFLAGS=-j8 sandbox-run sh -c 'set -u; echo $MAKEFLAGS'  # Harmless, built in

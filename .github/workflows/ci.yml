@@ -19,11 +19,7 @@ jobs:
           # sudo sysctl -w kernel.apparmor_restrict_unprivileged_unconfined=1
           # sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=1
       - run: sudo apt-get install tree man-db-
-      - run: time bash tests/smoke-test.sh
-      - run: time bash tests/test-bwrap-opts.sh
-      - run: time bash tests/test-env-vars.sh
-      - run: time bash tests/test-npm.sh
-      - run: time bash tests/test-symlinks.sh
+      - run: set -x; for test in tests/*; do time $test; done; set -x
 
   workflow-keepalive:
     if: github.event_name == 'schedule'

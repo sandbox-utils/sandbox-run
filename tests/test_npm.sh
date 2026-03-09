@@ -1,7 +1,7 @@
 #!/bin/sh
 set -eu
 
-. "${0%/*}/_init.sh"
+. "${0%/*}/.init.sh"
 
 sandbox-run npm install dotenv
 

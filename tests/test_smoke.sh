@@ -1,7 +1,7 @@
 #!/bin/sh
 set -eux
 
-. "${0%/*}/_init.sh"
+. "${0%/*}/.init.sh"
 
 sandbox-run sh -c 'awk -V'  # Awk via /etc/alternatives
 
