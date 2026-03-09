@@ -145,11 +145,14 @@ You can run `sandbox-run` without arguments to spawn **interactive shell**.
 When the filter file exists, seccomp filtering is set up using
 `setpriv --seccomp-filter="$ROOT/seccomp_filter.bin"`.
 Default filtering is automatically set up if `enosys` is available (package `util-linux-extra`).
+Most syscalls are allowed by default, but the dangerous ones are filtered out,
+including all the
+[syscalls blocked by Docker](https://docs.docker.com/engine/security/seccomp/).
 ```sh
 sudo apt install util-linux-extra  # For enosys
-
+# Optionally generate custom seccomp filter file
 enosyss --dump='$PWD/.sandbox/seccomp_filter.bin' --syscall ...
-````
+```
 
 
 #### Firejail profiles

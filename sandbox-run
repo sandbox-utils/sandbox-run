@@ -98,6 +98,8 @@ _generate_seccomp_filter () {
     enosys --list | awk '{ print $2 }' | sort -u > "$tmp1"
     # "Dangerous" syscalls. File a bug if the list seems too strict.
     echo "\
+_sysctl
+acct
 add_key
 adjtimex
 afs_syscall
@@ -108,12 +110,13 @@ create_module
 delete_module
 finit_module
 get_kernel_syms
+get_mempolicy
 init_module
-ioperm
-iopl
 io_uring_enter
 io_uring_register
 io_uring_setup
+ioperm
+iopl
 kcmp
 kexec_file_load
 kexec_load
@@ -125,13 +128,18 @@ mknod
 mknodat
 mlockall
 modify_ldt
+mount
 move_pages
 nfsservctl
+open_by_handle_at
 perf_event_open
+personality
+pivot_root
 process_vm_readv
 process_vm_writev
 ptrace
 query_module
+quotactl
 reboot
 request_key
 sched_setaffinity
@@ -139,19 +147,27 @@ sched_setattr
 sched_setparam
 sched_setscheduler
 security
-setdomainname
-sethostname
 set_mempolicy
 set_mempolicy_home_node
+setdomainname
+sethostname
+setns
 settimeofday
+stime
 swapoff
 swapon
 sysfs
 syslog
 tuxcall
+umount
+umount2
+unshare
 uselib
 userfaultfd
+ustat
 vhangup
+vm86
+vm86old
 vserver" | sort -u > "$tmp2"
     # shellcheck disable=SC2046
     enosys --dump="$ROOT/seccomp_filter.bin" \
