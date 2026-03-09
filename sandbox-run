@@ -402,15 +402,14 @@ case "${1:-}" in
 esac
 
 # We switch into a root-user namespace where mount is allowed
-# Keep --net namespace; unshare it in the next stage.
+# Keep --net, --time namespaces. Unshare them in the next stage.
 # Don't userns if already root, avoid permission problems.
 [ "$(id -u)" = 0 ] && _SANDBOX_ROOT=1 args= ||
     args="--user --map-root-user $mountbinfmt" _SANDBOX_ROOT=
 # shellcheck disable=SC2086
 env -i _SANDBOX_ROOT=$_SANDBOX_ROOT \
     unshare $args --kill-child --mount-proc \
-    --monotonic -1000 --boottime -1000 \
-    --ipc --mount --pid --uts --cgroup --time \
+    --ipc --mount --pid --uts --cgroup \
     "$0" --_sandbox_init "$@" \
     5<<EOF
 $(_filter_env | tr '\0' "$_RS")
