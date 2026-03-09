@@ -11,6 +11,7 @@ RO_BIND="${RO_BIND-}"
 RW_BIND="${RW_BIND-}"
 
 DEFAULT_RO_BIND="${DEFAULT_RO_BIND-\
+$(command -v slirp4netns >/dev/null 2>&1 || echo /etc/resolv.conf)\
 /etc/alternatives
 /etc/hosts
 /etc/ld.so.cache
@@ -18,7 +19,6 @@ DEFAULT_RO_BIND="${DEFAULT_RO_BIND-\
 /etc/os-release
 /etc/pkcs11
 /etc/pki
-/etc/resolv.conf
 /etc/ssl
 /etc/timezone
 /lib
@@ -58,6 +58,7 @@ _cleanup () {
         [ ! "${seccomp_filter_cleanup:-}" ] || rm -v "seccomp_filter.bin"
         [ ! "${slirp_socket-}" ] || rm -vf "$slirp_socket" || true
         rm -vf bin sbin || true  # Symlinks
+        rm -vf etc/resolv.conf || true
         IFS="$_RS"
         # shellcheck disable=SC2046
         find $(_split_str "$mount_points") -type f -empty -print0 | xargs -0r rm  # touch-ed files
@@ -296,6 +297,9 @@ _sandbox_init () {
         for pth in usr/bin usr/sbin; do
             [ -e "${pth##*/}" ] || ln -vs "$pth" "${pth##*/}"
         done
+
+        # If not using the host's resolv.conf, set up slirp4netns's nameserver
+        [ -e etc/resolv.conf ] || echo 'nameserver 10.0.2.3' > etc/resolv.conf
 
         # Read firejail profile(s), if available
         [ ! -e "./firejail.profile" ] || _read_firejail_config
