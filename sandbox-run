@@ -319,7 +319,7 @@ _sandbox_init () {
     [ -e "$ROOT/seccomp_filter.bin" ] && seccomp_filter="/seccomp_filter.bin" || seccomp_filter=
     # If root, avoid userns (permission problems). Also retain some caps.
     [ "$_SANDBOX_ROOT" ] && caps=',+DAC_OVERRIDE,+NET_BIND_SERVICE' args= ||
-        args="--user --map-user $USER --mount-binfmt" caps=
+        args="--user --map-user $USER $mountbinfmt" caps=
     unset _SANDBOX_ROOT
     # shellcheck disable=2086
     unshare $args --kill-child --mount-proc \
@@ -387,6 +387,9 @@ _filter_env () {
 'NODE_OPTIONS)='
 }
 
+# Use unshare --mount-binfmt switch if available
+unshare --help | grep -Fq mount-binfmt && mountbinfmt=--mount-binfmt || mountbinfmt=
+
 case "${1:-}" in
     --_sandbox_init) shift 1; _sandbox_init "$@"; exit $?; ;;
     --_sandbox_payload) shift 1; _sandbox_payload "$@"; exit $?; ;;
@@ -402,7 +405,7 @@ esac
 # Keep --net namespace; unshare it in the next stage.
 # Don't userns if already root, avoid permission problems.
 [ "$(id -u)" = 0 ] && _SANDBOX_ROOT=1 args= ||
-    args='--user --map-root-user --mount-binfmt' _SANDBOX_ROOT=
+    args="--user --map-root-user $mountbinfmt" _SANDBOX_ROOT=
 # shellcheck disable=SC2086
 env -i _SANDBOX_ROOT=$_SANDBOX_ROOT \
     unshare $args --kill-child --mount-proc \
