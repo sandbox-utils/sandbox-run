@@ -32,29 +32,39 @@ Run scary software in separate secure containers:
 ```shell
 podman run --rm -it -v "$PWD:$PWD" --net=host --workdir="$PWD" debian:stable-slim ./scary-binary
 ```
-or you can simply 
-`sandbox-run scary-binary`
+or you can simply:
+```shell
+sandbox-run scary-binary
+```
 (e.g. `sandbox-run npx @google/gemini-cli`)
-which uses [**bubblewrap**](https://github.com/containers/bubblewrap) (of
-[Flatpak](https://en.wikipedia.org/wiki/Flatpak) fame) to spawn your native OS container under the hood,
+which relies on [**unshare**](https://manpages.debian.org/unstable/unshare) (from
+`util-linux` package) to spawn your native OS container under the hood,
 and, after downloading almost 500 MB ❗ of JavaScript sources,
 executes this untrusted third-party's Node/NPM package anonymously and securely,
-with its CWD in `$PWD` and new `$HOME` in `$PWD/.sandbox-home`.
+with its CWD in `$PWD` and new `$ROOT` (root fs /) in `$PWD/.sandbox`.
 
+This script implements **most of the functionality of
+[`bubblewrap`](https://github.com/containers/bubblewrap)
+and [`firejail`](https://github.com/netblue30/firejail)**
+(two well known Linux sandboxing tools that provide a secure,
+isolated environment for running untrusted programs)
+**in under ~500 lines of pure POSIX shell**.
+
+You're on a terminal. There's nothing to build.
+You run it. It works.
 
 Installation
 ------------
-There are **no dependencies other than a POSIX shell** with
-[its standard set of utilities](https://en.wikipedia.org/wiki/List_of_POSIX_commands)
-**and `bubblewrap`**.
-The installation process, as well as the script runtime,
-should behave similarly on all relevant compute platforms,
-including GNU/Linux and even
-[Windos/WSL](https://learn.microsoft.com/en-us/windows/wsl/install). 🤞
+On Linux, there are **no dependencies other than a POSIX shell** with
+[its standard set of conventions and utilities](https://en.wikipedia.org/wiki/List_of_POSIX_commands).
+
+The installation process might be similar on
+[Windos/WSL](https://learn.microsoft.com/en-us/windows/wsl/install).
+For macOS, see section **_Alternatives_** below.
 
 ```shell
-# Install the few, unlikely to be missing dependencies, e.g.
-sudo apt install coreutils binutils bubblewrap
+# Install the unlikely-to-be-missing dependencies
+sudo apt install mount coreutils util-linux
 
 # Download the script and put it somewhere on PATH
 curl -vL 'https://bit.ly/sandbox-run' | sudo tee /usr/local/bin/sandbox-run
@@ -67,72 +77,86 @@ sandbox-run ls /
 
 Usage
 -----
-Whenever you want to run a scary executable, simply run:
+Whenever you want to run an untrusted executable, simply run:
 ```shell
 sandbox-run scary-app args
 ```
 to run `scary-app` in a secure sandbox.
 
 
-#### Extra Bubblewrap arguments
-
-You can also pass additional bubblewrap arguments to individual
-process invocations via **`$BWRAP_ARGS` environment variable**. E.g.:
-
-```sh
-BWRAP_ARGS='--bind /opt /opt' \
-    sandbox-run ./NVIDIA-Driver-Installer.run
-```
-
-For details, see `bubblewrap --help` or [`man 1 bwrap`](https://manpages.debian.org/unstable/bwrap).
-
-Note, **[`.env` file](https://stackoverflow.com/questions/68267862/what-is-an-env-or-dotenv-file-exactly)
-at project root** is respected, and sourced for the sandbox environment.
-
-See more specific examples below.
-
-
 #### Filesystem mounts
+
+`"$PWD/.sandbox"` contains the sandbox root filesystem (/).
 
 The **current working directory is mounted with read-write permissions**,
 while everything else required for a successful run (e.g. /usr)
-is mounted **read-only**. In addition:
+is mounted **read-only**.
 
-* `"$PWD/.sandbox-home"` is bind-mounted as `"$HOME"`,
-
-To mount extra endpoints, use `BWRAP_ARGS=` with switches `--bind` or `--bind-ro`.
-Anything else not explicitly mounted by an extra CLI switch
-is **lost upon container termination**.
+To mount extra endpoints, use `RO_BIND=` and `RW_BIND=` environment variables.
+Anything else not explicitly mounted is **lost upon namespace termination**.
 
 
-#### Linux Seccomp
+#### Environment variables
 
-See `bwrap` switches [`--seccomp FD` and `--add-seccomp-fd FD`](https://manpages.debian.org/unstable/bubblewrap/bwrap.1.en.html#:~:text=Lockdown%20options%3A-,--seccomp%20fd,-Load%20and%20use).
+[**`$PWD/.env` file (dotenv)**](https://stackoverflow.com/questions/68267862/what-is-an-env-or-dotenv-file-exactly)
+is respected, sourced, and exported to the sandbox environment.
+
+The following environment variables can be set to influence program behavior:
+
+* **`ROOT=`**– Path to sandbox root filesystem (default: `$PWD/.sandbox`).
+* **`RO_BIND=`**,
+  **`RW_BIND=`**– Extra mount points to bind-mount read-only (or read-write respectively) inside the sandbox.
+  Space- or, if argument paths themselves contain spaces, line-delimited.
+  If any argument is like `src:dst`, path `src` is mounted as `dst` inside the sandbox.
+* **`PORTS=`**– Space- or comma-separated list of ports to forward from host to guest.
+  Format like for Docker/podman `-p` switch: `host_port:guest_port/protocol`.
+  Example: `PORTS=8080:8080,8123:123/udp`.
+* **`DEFAULT_RO_BIND=`**, **`DEFAULT_RW_BIND=`**– Override default mount points.
+  Set clear to disable default mounts like `/usr` and `/lib`.
+* **`VERBOSE=`**– Print to stderr verbose debug messages pertaining to sandbox initialization and cleanup.
+* **`CLEANUP=`**– If set, remove `$ROOT` after execution.
 
 
 #### Runtime monitoring
 
 If **environment variable `VERBOSE=`** is set to a non-empty value,
-the full `bwrap` command line is emitted to stderr before execution.
+verbose/debug program output is emitted to stderr upon execution.
 
-You can list bubblewraped processes using the
+You can list sandboxed processes using the
 [command `lsns`](https://manpages.debian.org/unstable/lsns)
 or the following shell function:
 
 ```sh
-list_bwrap () { lsns -u -W | { IFS= read header; echo "$header"; grep bwrap; }; }
+list_sandboxes () {
+    lsns -u -W | {
+        IFS= read header; echo "$header"
+        grep --color=never "sandbox-run|slirp4netns"
+    }
+}
 
-list_bwrap  # Function call
+list_sandboxes  # Function call
 ```
 
-You can run `sandbox-run bash` to spawn **interactive shell inside the sandbox**.
+You can run `sandbox-run` without arguments to spawn **interactive shell**.
 
 
-#### Environment variables
+#### Linux Seccomp
 
-* `BWRAP_ARGS=`– Extra arguments passed to `bwrap` process; space or line-delimited (if arguments such as paths themselves contain spaces).
-* `SANDBOX_RO_BIND=`– List of additional path glob expressions to mount read-only inside the sandbox.
-* `VERBOSE=`– Print full `exec bwrap` command line right before execution.
+When the filter file exists, seccomp filtering is set up using
+`setpriv --seccomp-filter="$ROOT/seccomp_filter.bin"`.
+Default filtering is automatically set up if `enosys` is available (package `util-linux-extra`).
+```sh
+sudo apt install util-linux-extra  # For enosys
+
+enosyss --dump='$PWD/.sandbox/seccomp_filter.bin' --syscall ...
+````
+
+
+#### Firejail profiles
+
+Firejail profile in `$ROOT/firejail.profile` is read,
+As this program is only a rudimentary Firejail approximation,
+only directives `include`, `noblacklist`, `read-only` are interpreted.
 
 
 #### Debugging
@@ -143,25 +167,24 @@ To see what's failing, run the sandbox with something like `colorstrace -f -e '%
 Examples
 --------
 To pass extra environment variables, other than those filtered by default,
-use `bwrap --setenv`, e.g.:
+use `.env` file:
 ```sh
-BWRAP_ARGS='--setenv OPENAI_API_KEY c4f3b4b3'  sandbox-run my-ai-prog
-# or pass via .env (dotenv) file
+echo 'OPENAI_API_KEY=1111111111' > .env
+sandbox-run my-ai-prog
 ```
 
 To run the sandboxed process as **superuser**
-(while still retaining all the security functionality of the container sandbox),
-e.g. to open privileged ports, use args:
+(while still retaining most of the security functionality of the container sandbox),
+e.g. to open privileged ports, simply use `sudo`:
 ```sh
-BWRAP_ARGS='--uid 0 --cap-add cap_net_bind_service' sandbox-run python -m http.server 80
+sudo sandbox-run python -m http.server 80
 ```
 
 To run **GUI (X11) apps**, some prior success was achieved using e.g.:
 ```sh
-BWRAP_ARGS='--bind /tmp/.X11-unix/X0 /tmp/.X11-unix/X8 --setenv DISPLAY :8' \
-    sandbox-run python -m tkinter
+RO_BIND='/tmp/.X11-unix/X0:/tmp/.X11-unix/X8' DISPLAY=:8 \
+    sandbox-run xterm
 ```
-See [more examples on the ArchWiki](https://wiki.archlinux.org/title/Bubblewrap#Using_X11).
 
 
 Contributing
