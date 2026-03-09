@@ -50,7 +50,7 @@ _cleanup () {
             sleep 0.1 && kill -KILL "$slirp_pid" 2>/dev/null || true &
         fi
 
-        umount -vR "$ROOT/dev" "$ROOT/$pwd" 2>&1
+        umount -vR "$ROOT/dev" "$ROOT$pwd" 2>&1
         mount_points="$(mount | grep -F "$ROOT" | cut -d' ' -f3 | sort -r)"
         echo "$mount_points" | xargs -r umount -vR 2>&1
 
@@ -63,7 +63,7 @@ _cleanup () {
         find $(_split_str "$mount_points") -type f -empty -print0 | xargs -0r rm  # touch-ed files
         rm -vf ./etc/passwd ./etc/group  # Created /etc
         find . -type d -empty -delete
-        ! command -v tree 2>/dev/null || tree --dirsfirst -hfaL4 .
+        ! command -v tree >/dev/null 2>&1 || tree --dirsfirst -hfaL 4 .
         cd -
 
         if [ "$CLEANUP" ]; then rm -rfv "$ROOT"
@@ -79,7 +79,8 @@ _mount_path () {
     elif [ -e "$src" ]; then
         mkdir -p ".${dst%/*}"
         touch ".$dst" || true
-        mount -vo "bind$ro" "$src" ".$dst"
+        mount -v --bind "$src" ".$dst"
+        mount -vo "remount,bind$ro" ".$dst"
     fi
 }
 
@@ -92,7 +93,7 @@ _mount_bind () (
 )
 
 _generate_seccomp_filter () {
-    command -v enosys >/dev/null || return
+    command -v enosys >/dev/null 2>&1 || return 0
     tmp1="$(mktemp)" tmp2="$(mktemp)"
     enosys --list | awk '{ print $2 }' | sort -u > "$tmp1"
     # "Dangerous" syscalls. File a bug if the list seems too strict.
