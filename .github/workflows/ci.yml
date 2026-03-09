@@ -16,8 +16,9 @@ jobs:
       - run: shellcheck -S warning sandbox-run tests/*.sh
       - run: |
           sudo sysctl -w kernel.unprivileged_userns_clone=1
+          # https://discourse.ubuntu.com/t/spec-unprivileged-user-namespace-restrictions-via-apparmor-in-ubuntu-23-10/37626
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
           # sudo sysctl -w kernel.apparmor_restrict_unprivileged_unconfined=1
-          # sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=1
       - run: sudo apt-get install tree man-db-
       - run: set -x; for test in tests/*; do time $test; done; set -x
 
