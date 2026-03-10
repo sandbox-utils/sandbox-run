@@ -87,6 +87,26 @@ _mount_path () {
 
 _mount_bind () (
     spec="$1" ro="${2:-}"
+    # If spec is simple path, handle glob wildcards
+    case "$spec" in
+        *:*) ;;  # No globbing with "src:dst"
+        *[\*\[\?]*)
+            if (
+                unset IFS
+                cd "$pwd"
+                set +f
+                # shellcheck disable=SC2086
+                set -- $spec
+                cd -
+                if [ "$1" != "$spec" ]; then
+                    # shellcheck disable=SC2086,SC2030
+                    for pth; do _mount_bind "$pth" $ro; done
+                    exit
+                fi
+                exit 1
+            ); then return; fi
+            ;;
+    esac
     # shellcheck disable=SC2086
     _mount_path \
         "$(cd "$pwd"; realpath "${spec%%:*}")" \

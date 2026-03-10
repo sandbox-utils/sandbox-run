@@ -108,6 +108,7 @@ The following environment variables can be set to influence program behavior:
   **`RW_BIND=`**– Extra mount points to bind-mount read-only (or read-write respectively) inside the sandbox.
   Space- or, if argument paths themselves contain spaces, line-delimited.
   If any argument is like `src:dst`, path `src` is mounted as `dst` inside the sandbox.
+  These variables also support glob wildcard patterns.
 * **`PORTS=`**– Space- or comma-separated list of ports to forward from host to guest.
   Format like for Docker/podman `-p` switch: `host_port:guest_port/protocol`.
   Example: `PORTS=8080:8080,8123:123/udp`.
