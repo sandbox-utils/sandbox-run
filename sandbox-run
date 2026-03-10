@@ -1,7 +1,6 @@
 #!/bin/sh
 # Minimal namespace sandbox using unshare & setpriv from util-linux.
 # GH: @sandbox-utils/sandbox-run
-# shellcheck disable=SC2093,SC2317
 set -eu
 
 ROOT="${ROOT:-$PWD/.sandbox}" ROOT="${ROOT%%/}"
@@ -38,11 +37,13 @@ pwd="$PWD"
 
 _split_str () { printf '%s' "$1" | case "$1" in *$_LF*) tr '\n' "$_RS" ;; *) tr ' ' "$_RS" ;; esac; }
 
-verbose_stdout () { if [ "$VERBOSE" ]; then cat >&2; else cat >/dev/null; fi }
+_verbose_stdout () { if [ "$VERBOSE" ]; then cat >&2; else cat >/dev/null; fi }
+
+_warn () { category="${category-WARNING}" cat="${category:+$category:}"; echo "[${0##*/}] $cat $*" >&3; }
 
 _cleanup () {
     {
-        echo; echo; echo "[${0##*/}]: Cleanup ..."
+        category='' _warn "Cleanup ..." 3>&2
         # Clean up slirp4netns if we started it
         if [ "${slirp_pid-}" ]; then
             kill "$slirp_pid" || true
@@ -68,9 +69,9 @@ _cleanup () {
         cd -
 
         if [ "$CLEANUP" ]; then rm -rfv "$ROOT"
-        elif [ "$VERBOSE" ]; then echo "sandbox-run: rootfs workdir in \"$ROOT\"" >&2
+        elif [ "$VERBOSE" ]; then category='' _warn "rootfs workdir in \"$ROOT\""
         fi
-    } 2>&1 | verbose_stdout
+    } 2>&1 | _verbose_stdout
 }
 
 _mount_path () {
@@ -82,6 +83,8 @@ _mount_path () {
         touch ".$dst" || true
         mount -v --bind "$src" ".$dst"
         mount -vo "remount,bind$ro" ".$dst"
+    else
+        _warn "'$src': No such file or directory"
     fi
 }
 
@@ -114,7 +117,12 @@ _mount_bind () (
 )
 
 _generate_seccomp_filter () {
-    command -v enosys >/dev/null 2>&1 || return 0
+    command -v enosys >/dev/null 2>&1 || {
+        # shellcheck disable=SC2016
+        _warn "No seccomp filter (command \`enosys\` not available; \`apt install util-linux-extra\` \
+or provide own '$ROOT/seccomp_filter.bin')."
+        return 0
+    }
     tmp1="$(mktemp)" tmp2="$(mktemp)"
     enosys --list | awk '{ print $2 }' | sort -u > "$tmp1"
     # "Dangerous" syscalls. File a bug if the list seems too strict.
@@ -234,6 +242,8 @@ _sandbox_init () {
     # XXX: Ideally we would set up overlayfs with lower=/,upper=$ROOT, but for permissions ...
     mkdir -p "$ROOT"
     trap _cleanup EXIT TERM INT HUP
+    # Duplicate stderr for really important messages by _warn()
+    exec 3>&2
 
     # Source .env
     [ ! -e "$pwd/.env" ] || {
@@ -323,7 +333,7 @@ _sandbox_init () {
 
         # Read firejail profile(s), if available
         [ ! -e "./firejail.profile" ] || _read_firejail_config
-    } 2>&1 | verbose_stdout
+    } 2>&1 | _verbose_stdout
 
     # Install seccomp filter if available
     [ -e "$ROOT/seccomp_filter" ] || _generate_seccomp_filter
@@ -389,7 +399,7 @@ _sandbox_init () {
             ${slirp_socket:+--api-socket "$slirp_socket"} \
             "$unshare_pid" "$tapname" >"$fifo" 2>&1 &
         slirp_pid=$!
-        verbose_stdout <"$fifo" &
+        _verbose_stdout <"$fifo" &
         rm "$fifo"
     fi
 
