@@ -405,9 +405,7 @@ _sandbox_init () {
 
     # Wait for the sandbox payload to finish
     wait "$unshare_pid"
-    exit_status=$?
-
-    exit $exit_status
+    return $?
 }
 
 _sandbox_payload () {
@@ -458,12 +456,10 @@ esac
 [ "$(id -u)" = 0 ] && _SANDBOX_ROOT=1 args= ||
     args="--user --map-root-user $mountbinfmt" _SANDBOX_ROOT=
 # shellcheck disable=SC2086
-env -i _SANDBOX_ROOT=$_SANDBOX_ROOT \
+exec env -i _SANDBOX_ROOT=$_SANDBOX_ROOT \
     unshare $args --kill-child --mount-proc \
     --ipc --mount --pid --uts --cgroup \
     "$0" --_sandbox_init "$@" \
     5<<EOF
 $(_filter_env | tr '\0' "$_RS")
 EOF
-
-exit 0
