@@ -44,9 +44,10 @@ executes this untrusted third-party's Node/NPM package anonymously and securely,
 with its CWD in `$PWD` and new `$ROOT` (root fs /) in `$PWD/.sandbox`.
 
 This script implements **most of the functionality of
-[`bubblewrap`](https://github.com/containers/bubblewrap)
-and [`firejail`](https://github.com/netblue30/firejail)**
-(two well known Linux sandboxing tools that provide a secure,
+[`bubblewrap`](https://github.com/containers/bubblewrap) and
+[`firejail`](https://github.com/netblue30/firejail)**
+([`bubblejail`](https://github.com/igo95862/bubblejail), etc.—all
+well-known Linux sandboxing tools that provide a secure,
 isolated environment for running untrusted programs)
 **in under ~500 lines of pure POSIX shell**.
 
@@ -65,6 +66,17 @@ For macOS, see section **_Alternatives_** below.
 ```shell
 # Install the unlikely-to-be-missing dependencies
 sudo apt install mount coreutils util-linux
+
+# Optionally install slirp4netns for separate network namespace.
+# If unavailable, the network is shared with the host.
+sudo apt install slirp4netns
+
+# Optionally install `enosys` tool for automatic seccomp filtering
+sudo apt install util-linux-extra
+
+# Linux user namespaces need to be enabled
+sudo sysctl -w kernel.unprivileged_userns_clone=1
+sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
 
 # Download the script and put it somewhere on PATH
 curl -vL 'https://bit.ly/sandbox-run' | sudo tee /usr/local/bin/sandbox-run
@@ -111,11 +123,24 @@ The following environment variables can be set to influence program behavior:
   These variables also support glob wildcard patterns.
 * **`PORTS=`**– Space- or comma-separated list of ports to forward from host to guest.
   Format like for Docker/podman `-p` switch: `host_port:guest_port/protocol`.
-  Example: `PORTS=8080:8080,8123:123/udp`.
+  Example: `PORTS=8080:8080,8123:123/udp`. This variable has no effect if host
+  networking namespaces is shared (i.e. `slirp4netns` is unavailable).
 * **`DEFAULT_RO_BIND=`**, **`DEFAULT_RW_BIND=`**– Override default mount points.
   Set clear to disable default mounts like `/usr` and `/lib`.
 * **`VERBOSE=`**– Print to stderr verbose debug messages pertaining to sandbox initialization and cleanup.
 * **`CLEANUP=`**– If set, remove `$ROOT` after execution.
+
+
+#### Symlinks
+
+Symlinks to `sandbox-run` are resolved, e.g.:
+```sh
+ln -s /usr/local/bin/npm "$(which sandbox-run)"
+which npm  # Confirm npm points to sandbox-run
+
+# Now npm runs inside the sandbox everywhere
+npm -v
+````
 
 
 #### Runtime monitoring
