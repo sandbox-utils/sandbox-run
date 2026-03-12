@@ -1,5 +1,5 @@
 #!/bin/sh
-# Minimal namespace sandbox using unshare & setpriv from util-linux.
+# sandbox-run: Run command in a secure Linux namespace sandbox.
 # GH: @sandbox-utils/sandbox-run
 set -eu
 

@@ -26,6 +26,7 @@ all current user's credentials and more personal bits like:
 [Electron app](https://www.electronjs.org/apps)
 relies on impeccability of hundreds or thousands of dependencies, NodeJS and Chromium to say the least! 😬</sub>
 
+
 #### Solution
 
 Run scary software in separate secure containers:
@@ -54,6 +55,13 @@ isolated environment for running untrusted programs)
 You're on a terminal. There's nothing to build.
 You run it. It works.
 
+> [!NOTE]
+> The repo also contains legacy Bubblewrap wrapper
+> script `sandbox-run.bwrap`. If you trust Bubblewrap,
+> the wrapper script is shorter and simpler to review,
+> but feature parity is limited and will not be strictly maintained.
+
+
 Installation
 ------------
 On Linux, there are **no dependencies other than a POSIX shell** with
@@ -78,7 +86,9 @@ sudo apt install util-linux-extra
 sudo sysctl -w kernel.unprivileged_userns_clone=1
 sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
 
-# Download the script and put it somewhere on PATH
+# Download the script and put it somewhere on PATH.
+# If you prefer the legacy Bubblewrap wrapper, use
+# URL 'https://bit.ly/sandbox-run-bwrap' instead.
 curl -vL 'https://bit.ly/sandbox-run' | sudo tee /usr/local/bin/sandbox-run
 sudo chmod +x /usr/local/bin/sandbox-run  # Mark executable
 
@@ -86,6 +96,7 @@ sandbox-run
 # Usage: sandbox-run ARG...
 sandbox-run ls /
 ```
+
 
 Usage
 -----
@@ -190,7 +201,8 @@ only directives `include`, `noblacklist`, `read-only` are interpreted.
 
 #### Debugging
 
-To see what's failing, run the sandbox with something like `colorstrace -f -e '%file,%process' ...`.
+To see what's failing, run the sandbox with something like
+[`colorstrace -f -e '%file,%process' ...`](https://github.com/kernc/colorstrace).
 
 
 Examples
