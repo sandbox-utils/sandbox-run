@@ -94,17 +94,11 @@ mkdir -p "$home/tmp"
 IFS=$(printf '\037')
 for var in $(env -0 |
         grep -Ez -e '^('\
-'USER|LOGNAME|UID|PATH|TERM|HOSTNAME|'\
-'LANGUAGE|LANG|LC_.*?|TZ|'\
+'USER|LOGNAME|UID|PATH|TERM|HOSTNAME|DISPLAY|WAYLAND_DISPLAY|'\
+'LANGUAGE|LANG|LC_[^= ]*|TZ|'\
 'https?_proxy|HTTPS?_PROXY|'\
-'CC|CFLAGS|CXXFLAGS|CPPFLAGS|LDFLAGS|LDLIBS|MAKEFLAGS)=' \
-                 -e "^($(env -0 |
-                         cut -z -d= -f1 |
-                         grep -Ezv "^($(cut -z -d= -f1 </proc/$PPID/environ |
-                                        paste -z -s -d '|'))$" |
-                         paste -z -s -d '|'))=" |
-        grep -Ezv -e '^(_|LS_COLORS|PS1)=' |
-        grep -Ezv -e '^(BWRAP_ARGS|RO_BIND)=' |
+'CC|CFLAGS|CXXFLAGS|CPPFLAGS|LDFLAGS|LDLIBS|MAKEFLAGS|'\
+'NODE_OPTIONS)=' |
         tr '\0' '\037'); do
     set -- --setenv "${var%%=*}" "${var#*=}" "$@"
 done
