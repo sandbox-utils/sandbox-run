@@ -126,78 +126,17 @@ or provide own '$ROOT/seccomp_filter.bin')."
     tmp1="$(mktemp)" tmp2="$(mktemp)"
     enosys --list | awk '{ print $2 }' | sort -u > "$tmp1"
     # "Dangerous" syscalls. File a bug if the list seems too strict.
+    # Mostly in-sync with https://docs.docker.com/engine/security/seccomp/
     echo "\
-_sysctl
-acct
-add_key
-adjtimex
-afs_syscall
-bpf
-clock_adjtime
-clock_settime
-create_module
-delete_module
-finit_module
-get_kernel_syms
-get_mempolicy
-init_module
-io_uring_enter
-io_uring_register
-io_uring_setup
-ioperm
-iopl
-kcmp
-kexec_file_load
-kexec_load
-keyctl
-lookup_dcookie
-mbind
-migrate_pages
-mknod
-mknodat
-mlockall
-modify_ldt
-mount
-move_pages
-nfsservctl
-open_by_handle_at
-perf_event_open
-personality
-pivot_root
-process_vm_readv
-process_vm_writev
-ptrace
-query_module
-quotactl
-reboot
-request_key
-sched_setaffinity
-sched_setattr
-sched_setparam
-sched_setscheduler
-security
-set_mempolicy
-set_mempolicy_home_node
-setdomainname
-sethostname
-setns
-settimeofday
-stime
-swapoff
-swapon
-sysfs
-syslog
-tuxcall
-umount
-umount2
-unshare
-uselib
-userfaultfd
-ustat
-vhangup
-vm86
-vm86old
-vserver" | sort -u > "$tmp2"
+_sysctl acct add_key adjtimex afs_syscall bpf clock_adjtime clock_settime create_module delete_module
+finit_module get_kernel_syms get_mempolicy init_module io_uring_enter io_uring_register io_uring_setup
+ioperm iopl kcmp kexec_file_load kexec_load keyctl lookup_dcookie mbind migrate_pages mknod mknodat
+mlockall modify_ldt mount move_pages nfsservctl open_by_handle_at perf_event_open personality pivot_root
+process_vm_readv process_vm_writev ptrace query_module quotactl reboot request_key sched_setaffinity
+sched_setattr sched_setparam sched_setscheduler security set_mempolicy set_mempolicy_home_node
+setdomainname sethostname setns settimeofday stime swapoff swapon sysfs syslog tuxcall umount umount2
+unshare uselib userfaultfd ustat vhangup vm86 vm86old vserver" |
+        sort -u > "$tmp2"
     # shellcheck disable=SC2046
     enosys --dump="$ROOT/seccomp_filter.bin" \
         $(comm -12 "$tmp1" "$tmp2" | awk '{ printf " --syscall %s", $0}')

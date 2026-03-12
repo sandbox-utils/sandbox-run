@@ -50,7 +50,7 @@ This script implements **most of the functionality of
 ([`bubblejail`](https://github.com/igo95862/bubblejail), etc.—all
 well-known Linux sandboxing tools that provide a secure,
 isolated environment for running untrusted programs)
-**in under ~500 lines of pure POSIX shell**.
+**in under ~400 lines of pure POSIX shell**.
 
 You're on a terminal. There's nothing to build.
 You run it. It works.
