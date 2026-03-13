@@ -242,8 +242,10 @@ _sandbox_init () {
         getent group nogroup > etc/group
         getent passwd root "$USER" > etc/passwd
 
-        # Mount CWD
-        mount -v --rbind "$pwd" ".$pwd"
+        # Mount CWD, but only if not equal to $HOME
+        # shellcheck disable=SC2015,SC2016
+        [ "$pwd" = "$HOME" ] && _warn '$PWD is $HOME: Not mounting $PWD' ||
+            mount -v --rbind "$pwd" ".$pwd"
         # Overlay some resources with empty/null to conceal them
         mkdir -vp .empty-sandbox .empty-git
         mount -v --bind .empty-sandbox ".$pwd/${ROOT##*/}"

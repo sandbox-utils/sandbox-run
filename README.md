@@ -111,7 +111,8 @@ to run `scary-app` in a secure sandbox.
 
 `"$PWD/.sandbox"` contains the sandbox root filesystem (/).
 
-The **current working directory is mounted with read-write permissions**,
+When different from `$HOME`, the
+**current working directory (`$PWD`) is mounted with read-write permissions**
 while everything else required for a successful run (e.g. /usr)
 is mounted **read-only**.
 
