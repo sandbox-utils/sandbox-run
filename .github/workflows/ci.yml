@@ -20,7 +20,7 @@ jobs:
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
           # sudo sysctl -w kernel.apparmor_restrict_unprivileged_unconfined=1
       - run: sudo apt-get install tree bubblewrap man-db-
-      - run: set -x; for test in tests/*; do time $test; done; set -x
+      - run: set -x; for test in tests/*; do echo "::group::$test"; time $test; echo '::endgroup::'; done; set -x
         env: { VERBOSE: 1 }
 
   workflow-keepalive:
