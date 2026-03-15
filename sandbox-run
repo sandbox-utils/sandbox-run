@@ -48,7 +48,7 @@ _cleanup () {
         if [ "${slirp_pid-}" ]; then
             kill "$slirp_pid" || true
             # shellcheck disable=SC2015
-            sleep 0.1 && kill -KILL "$slirp_pid" 2>/dev/null || true &
+            ( trap '' HUP; sleep .1; kill -KILL "$slirp_pid" 2>/dev/null || true; ) &
         fi
 
         umount -vR "$ROOT/dev" "$ROOT$pwd" 2>&1
@@ -81,8 +81,7 @@ _mount_path () {
     elif [ -e "$src" ]; then
         mkdir -p ".${dst%/*}"
         touch ".$dst" || true
-        mount -v --bind "$src" ".$dst"
-        mount -vo "remount,bind$ro" ".$dst"
+        mount -vo "rbind$ro" "$src" ".$dst"
     else
         _warn "'$src': No such file or directory"
     fi
@@ -303,7 +302,7 @@ _sandbox_init () {
 
     # Set netns via slirp4netns
     hostname sandbox-run
-    command -v slirp4netns >/dev/null 2>&1 && netns=--net || netns=
+    command -v slirp4netns >/dev/null 2>&1 && netns='--net' || netns=
 
     # Switch into a nobody:nogroup namespace
     [ -t 0 ] && keep_tty='/dev/tty' || keep_tty='/dev/fd/0'
@@ -326,13 +325,9 @@ _sandbox_init () {
     unshare_pid=$!
 
     # Netns configuration
-    i=0
-    while [ $i -lt 500 ]; do
-        [ ! -e "/proc/$unshare_pid/ns/net" ] || break
-        i=$((i+1))
-        sleep 0.01
-    done
     if [ "$netns" ]; then
+        test -e "/proc/$unshare_pid/ns/net" ||
+            category='ERROR' _warn '/proc/{unshare_pid}/ns/net: No such file or directory'
         fifo="$(mktemp -u)"; mkfifo "$fifo"
         tapname="tap-pid-$unshare_pid=$(echo "$*" | tr -cs '[:alnum:]' '-')"
         [ "${PORTS:-}" ] && slirp_socket="$ROOT/slirp4netns.sock" || slirp_socket=
