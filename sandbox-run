@@ -51,6 +51,7 @@ _warn () { category="${category-WARNING}" cat="${category:+$category:}"; echo "[
 
 _cleanup () {
     {
+        trap : EXIT TERM INT HUP
         category='' _warn "Cleanup ..." 3>&2
         # Clean up slirp4netns if we started it
         if [ "${slirp_pid-}" ]; then
