@@ -45,42 +45,41 @@ pwd="$PWD"
 
 _split_str () { printf '%s' "$1" | case "$1" in *$_LF*) tr '\n' "$_RS" ;; *) tr ' ' "$_RS" ;; esac; }
 
-_verbose_stdout () { if [ "$VERBOSE" ]; then cat >&2; else cat >/dev/null; fi }
+_maybe_verbose () { if [ "$VERBOSE" ]; then "$@" >&2; else "$@" >/dev/null; fi }
+_verbose_filter () { if [ "$VERBOSE" ]; then cat >&2; else cat >/dev/null; fi }
 
 _warn () { category="${category-WARNING}" cat="${category:+$category:}"; echo "[${0##*/}] $cat $*" >&3; }
 
 _cleanup () {
-    {
-        trap : EXIT TERM INT HUP
-        category='' _warn "Cleanup ..." 3>&2
-        # Clean up slirp4netns if we started it
-        if [ "${slirp_pid-}" ]; then
-            kill "$slirp_pid" || true
-            # shellcheck disable=SC2015
-            ( trap '' HUP; sleep .1; kill -KILL "$slirp_pid" 2>/dev/null || true; ) &
-        fi
+    trap : EXIT TERM INT HUP
+    category='' _warn "Cleanup ..." 3>&2
+    # Clean up slirp4netns if we started it
+    if [ "${slirp_pid-}" ]; then
+        kill "$slirp_pid" || true
+        # shellcheck disable=SC2015
+        ( trap '' HUP; sleep .1; kill -KILL "$slirp_pid" 2>/dev/null || true; ) &
+    fi
 
-        umount -vR "$ROOT/dev" "$ROOT$pwd" 2>&1
-        mount_points="$(mount | grep -F "$ROOT" | cut -d' ' -f3 | sort -r)"
-        echo "$mount_points" | xargs -r umount -vR 2>&1
+    umount -vR "$ROOT/dev" "$ROOT$pwd" 2>&1
+    mount_points="$(mount | grep -F "$ROOT" | cut -d' ' -f3 | sort -r)"
+    echo "$mount_points" | xargs -r umount -vR 2>&1
 
-        cd "$ROOT"
-        [ ! "${seccomp_filter_cleanup:-}" ] || rm -v "seccomp_filter.bin"
-        [ ! "${slirp_socket-}" ] || rm -vf "$slirp_socket" || true
-        rm -vf bin sbin || true  # Symlinks
-        rm -vf etc/resolv.conf || true
-        IFS="$_RS"
-        # shellcheck disable=SC2046
-        find $(_split_str "$mount_points") -type f -empty -print0 | xargs -0r rm  # touch-ed files
-        rm -vf ./etc/passwd ./etc/group  # Created /etc
-        find . -type d -empty -delete
-        ! command -v tree >/dev/null 2>&1 || tree --dirsfirst -hfaL 4 .
-        cd -
+    cd "$ROOT"
+    [ ! "${seccomp_filter_cleanup:-}" ] || rm -v "seccomp_filter.bin"
+    [ ! "${slirp_socket-}" ] || rm -vf "$slirp_socket" || true
+    rm -vf bin sbin || true  # Symlinks
+    rm -vf etc/resolv.conf || true
+    IFS="$_RS"
+    # shellcheck disable=SC2046
+    find $(_split_str "$mount_points") -type f -empty -print0 | xargs -0r rm  # touch-ed files
+    rm -vf ./etc/passwd ./etc/group  # Created /etc
+    find . -type d -empty -delete
+    ! command -v tree >/dev/null 2>&1 || tree --dirsfirst -hfaL 4 .
+    cd -
 
-        if [ "$CLEANUP" ]; then rm -rfv "$ROOT"
-        elif [ "$VERBOSE" ]; then category='' _warn "rootfs workdir in \"$ROOT\""
-        fi
-    } 2>&1 | _verbose_stdout
+    if [ "$CLEANUP" ]; then rm -rfv "$ROOT"
+    elif [ "$VERBOSE" ]; then category='' _warn "rootfs workdir in \"$ROOT\""
+    fi
 }
 
 _mount_path () {
@@ -184,11 +183,89 @@ _read_firejail_config () {
     rm "$tmp"
 }
 
+_chroot_procedure () (
+    cd "$ROOT"
+    mkdir -vp dev proc sys tmp etc usr lib lib64 opt root var .git ".$HOME" ".$pwd"
+
+    # Mock /dev
+    # Make sure filesystem superblock is owned by a mapped UID (i.e. 65534 -> 0)
+    mount -t tmpfs -vo mode=0755,dev tmpfs dev
+    mkdir -vp dev/pts dev/shm dev/fd
+    mount -t devpts -o "newinstance,ptmxmode=0666" devpts dev/pts
+    mount -t tmpfs tmpfs dev/shm
+    for pth in dev/zero dev/null dev/full dev/random dev/urandom dev/tty dev/console; do
+        if [ -e "/$pth" ]; then
+            # shellcheck disable=SC2015
+            [ -d "/$pth" ] && mkdir "$pth" || touch "$pth"
+            mount -vo rbind,uid=0,gid=0,dev "/$pth" "$pth"
+        fi
+    done
+    ln -vs /dev/pts/ptmx dev/ptmx
+    ln -vs /proc/kcore dev/core
+    ln -vs /proc/self/fd dev/fd
+    ln -vs /proc/self/fd/0 dev/stdin
+    ln -vs /proc/self/fd/1 dev/stdout
+    ln -vs /proc/self/fd/2 dev/stderr
+    for i in 0 1 2; do
+        ln -vs /proc/self/fd/$i dev/fd/$i
+    done
+
+    # Mount default dirs, usr, lib
+    IFS="$_RS"
+    for pth in $(_split_str "$DEFAULT_RW_BIND"); do
+        [ ! -e "$pth" ] || _mount_path "$pth" ''
+    done
+    for pth in $(_split_str "$DEFAULT_RO_BIND"); do
+        [ ! -e "$pth" ] || _mount_path "$pth" '' ro
+    done
+    unset IFS
+
+    # sandbox-run script itself required for payload stage
+    [ -x ".$self" ] || _mount_bind "$self" ro
+
+    # /etc
+    getent group nogroup > etc/group
+    getent passwd root "$USER" > etc/passwd
+
+    # Mount CWD, but only if not equal to $HOME
+    # shellcheck disable=SC2015,SC2016
+    [ "$pwd" = "$HOME" ] && _warn '$PWD is $HOME: Not mounting $PWD' ||
+        mount -v --rbind "$pwd" ".$pwd"
+    # Overlay some resources with empty/null to conceal them
+    mkdir -vp .empty-sandbox .empty-git
+    mount -v --bind .empty-sandbox ".$pwd/${ROOT##*/}"
+    find "$pwd" -path "$ROOT" -prune -o -type d -name '.git' -print0 |
+        xargs -0r mount -v --bind .empty-git
+    find "$pwd" -path "$ROOT" -prune -o -type f -name '.env' -print0 |
+        xargs -0r mount -v --bind /dev/null
+
+    # Handle RW_BIND=, RO_BIND=
+    IFS="$_RS"
+    for pth in $(_split_str "${RW_BIND:-}"); do
+        _mount_bind "$pth"
+    done
+    for pth in $(_split_str "${RO_BIND:-}"); do
+        _mount_bind "$pth" ro
+    done
+    unset IFS
+
+    # Symlinks: /bin -> /usr/bin ...
+    for pth in usr/bin usr/sbin; do
+        [ -e "${pth##*/}" ] || ln -vs "$pth" "${pth##*/}"
+    done
+
+    # If not using the host's resolv.conf, set up slirp4netns's nameserver
+    [ -e etc/resolv.conf ] || echo 'nameserver 10.0.2.3' > etc/resolv.conf
+
+    # Read firejail profile(s), if available
+    [ ! -e "./firejail.profile" ] || _read_firejail_config
+)
+
 _sandbox_init () {
     # Prepare chroot
     # XXX: Ideally we would set up overlayfs with lower=/,upper=$ROOT, but for permissions ...
     mkdir -p "$ROOT"
-    trap _cleanup EXIT TERM INT HUP
+    trap '_maybe_verbose _cleanup' EXIT TERM INT HUP
     # Duplicate stderr for really important messages by _warn()
     exec 3>&2
 
@@ -206,83 +283,7 @@ _sandbox_init () {
     unset IFS; set +f
 
     self="$(case "$0" in /*) echo "$0" ;; *) realpath "$0" ;; esac)"
-    {
-        cd "$ROOT"
-        mkdir -vp dev proc sys tmp etc usr lib lib64 opt root var .git ".$HOME" ".$pwd"
-
-        # Mock /dev
-        # Make sure filesystem superblock is owned by a mapped UID (i.e. 65534 -> 0)
-        mount -t tmpfs -vo mode=0755,dev tmpfs dev
-        mkdir -vp dev/pts dev/shm dev/fd
-        mount -t devpts -o "newinstance,ptmxmode=0666" devpts dev/pts
-        mount -t tmpfs tmpfs dev/shm
-        for pth in dev/zero dev/null dev/full dev/random dev/urandom dev/tty dev/console; do
-            if [ -e "/$pth" ]; then
-                # shellcheck disable=SC2015
-                [ -d "/$pth" ] && mkdir "$pth" || touch "$pth"
-                mount -vo rbind,uid=0,gid=0,dev "/$pth" "$pth"
-            fi
-        done
-        ln -vs /dev/pts/ptmx dev/ptmx
-        ln -vs /proc/kcore dev/core
-        ln -vs /proc/self/fd dev/fd
-        ln -vs /proc/self/fd/0 dev/stdin
-        ln -vs /proc/self/fd/1 dev/stdout
-        ln -vs /proc/self/fd/2 dev/stderr
-        for i in 0 1 2; do
-            ln -vs /proc/self/fd/$i dev/fd/$i
-        done
-
-        # Mount default dirs, usr, lib
-        IFS="$_RS"
-        for pth in $(_split_str "$DEFAULT_RW_BIND"); do
-            [ ! -e "$pth" ] || _mount_path "$pth" ''
-        done
-        for pth in $(_split_str "$DEFAULT_RO_BIND"); do
-            [ ! -e "$pth" ] || _mount_path "$pth" '' ro
-        done
-        unset IFS
-
-        # sandbox-run script itself required for payload stage
-        [ -x ".$self" ] || _mount_bind "$self" ro
-
-        # /etc
-        getent group nogroup > etc/group
-        getent passwd root "$USER" > etc/passwd
-
-        # Mount CWD, but only if not equal to $HOME
-        # shellcheck disable=SC2015,SC2016
-        [ "$pwd" = "$HOME" ] && _warn '$PWD is $HOME: Not mounting $PWD' ||
-            mount -v --rbind "$pwd" ".$pwd"
-        # Overlay some resources with empty/null to conceal them
-        mkdir -vp .empty-sandbox .empty-git
-        mount -v --bind .empty-sandbox ".$pwd/${ROOT##*/}"
-        find "$pwd" -path "$ROOT" -prune -o -type d -name '.git' -print0 |
-            xargs -0r mount -v --bind .empty-git
-        find "$pwd" -path "$ROOT" -prune -o -type f -name '.env' -print0 |
-            xargs -0r mount -v --bind /dev/null
-
-        # Handle RW_BIND=, RO_BIND=
-        IFS="$_RS"
-        for pth in $(_split_str "${RW_BIND:-}"); do
-            _mount_bind "$pth"
-        done
-        for pth in $(_split_str "${RO_BIND:-}"); do
-            _mount_bind "$pth" ro
-        done
-        unset IFS
-
-        # Symlinks: /bin -> /usr/bin ...
-        for pth in usr/bin usr/sbin; do
-            [ -e "${pth##*/}" ] || ln -vs "$pth" "${pth##*/}"
-        done
-
-        # If not using the host's resolv.conf, set up slirp4netns's nameserver
-        [ -e etc/resolv.conf ] || echo 'nameserver 10.0.2.3' > etc/resolv.conf
-
-        # Read firejail profile(s), if available
-        [ ! -e "./firejail.profile" ] || _read_firejail_config
-    } 2>&1 | _verbose_stdout
+    _maybe_verbose _chroot_procedure
 
     # Install seccomp filter if available
     [ -e "$ROOT/seccomp_filter" ] || _generate_seccomp_filter
@@ -344,7 +345,7 @@ _sandbox_init () {
             ${slirp_socket:+--api-socket "$slirp_socket"} \
             "$unshare_pid" "$tapname" >"$fifo" 2>&1 &
         slirp_pid=$!
-        _verbose_stdout <"$fifo" &
+        _verbose_filter <"$fifo" &
         rm "$fifo"
     fi
 
