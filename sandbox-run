@@ -2,6 +2,14 @@
 # sandbox-run: Run command in a secure Linux namespace sandbox.
 # GH: @sandbox-utils/sandbox-run
 set -eu
+[ ! "${DEBUG-}" ] || {
+    set -x
+    PS4="$(
+        # shellcheck disable=SC2016
+        if [ "${LINENO:-}" ] && [ "${BASH_VERSION:-}" ]; then lineno=':${LINENO-}>'; fi
+        printf "\033[36;40;1m+%s${lineno:-}\033[0m " "$0")"
+    export PS4
+}
 
 ROOT="${ROOT:-$PWD/.sandbox}" ROOT="${ROOT%%/}"
 VERBOSE="${VERBOSE:-}"
@@ -364,7 +372,7 @@ _sandbox_payload () {
 
 _filter_env () {
     env -0 | grep -Eze '^('\
-'VERBOSE|CLEANUP|RO_BIND|RW_BIND|DEFAULT_RO_BIND|DEFAULT_RW_BIND|PORTS|'\
+'VERBOSE|DEBUG|CLEANUP|RO_BIND|RW_BIND|DEFAULT_RO_BIND|DEFAULT_RW_BIND|PORTS|'\
 'USER|LOGNAME|UID|PATH|TERM|HOME|HOSTNAME|DISPLAY|WAYLAND_DISPLAY|'\
 'LANGUAGE|LANG|LC_[^= ]*|TZ|'\
 'https?_proxy|HTTPS?_PROXY|'\
@@ -393,6 +401,7 @@ esac
     args="--user --map-root-user $mountbinfmt" _SANDBOX_ROOT=
 # shellcheck disable=SC2086
 exec env -i _SANDBOX_ROOT=$_SANDBOX_ROOT \
+    VERBOSE=${VERBOSE-} DEBUG=${DEBUG-} \
     unshare $args --kill-child --mount-proc \
     --ipc --mount --pid --uts --cgroup \
     "$0" --_sandbox_init "$@" \
