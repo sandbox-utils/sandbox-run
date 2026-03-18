@@ -116,6 +116,7 @@ When different from `$HOME`, the
 **current working directory (`$PWD`) is mounted with read-write permissions**
 while everything else required for a successful run (e.g. _/usr_, _/lib_)
 is mounted **read-only**.
+Directories matching `$PWD/**/.git` are also mounted read-only.
 
 To mount extra endpoints, use `RO_BIND=` and `RW_BIND=` environment variables.
 Anything else not explicitly mounted is either not there or

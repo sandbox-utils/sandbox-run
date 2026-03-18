@@ -233,10 +233,14 @@ _chroot_procedure () (
     # Overlay some resources with empty/null to conceal them
     mkdir -vp .empty-sandbox .empty-git
     mount -v --bind .empty-sandbox ".$pwd/${ROOT##*/}"
-    find "$pwd" -maxdepth 4 -path "$ROOT" -prune -o -type d -name '.git' -print0 |
-        xargs -P8 -0rn1 mount -v --bind .empty-git
     find "$pwd" -maxdepth 4 -path "$ROOT" -prune -o -type f -name '.env' -print0 |
         xargs -P8 -0rn1 mount -v --bind /dev/null
+    # (Re)mount .git read-only
+    IFS="$_RS"
+    for git_dir in $(find "$pwd" -maxdepth 4 -path "$ROOT" -prune -o -type d -name '.git' -print0 |
+                     tr '\0' "$_RS"); do
+        mount -vo bind,ro "$git_dir" "$ROOT$git_dir"
+    done
 
     # Handle RW_BIND=, RO_BIND=
     IFS="$_RS"
