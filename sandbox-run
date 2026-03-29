@@ -20,6 +20,9 @@ RW_BIND="${RW_BIND-}"
 DEFAULT_RO_BIND="${DEFAULT_RO_BIND-\
 $(command -v slirp4netns >/dev/null 2>&1 || echo /etc/resolv.conf)\
 /etc/alternatives
+/etc/bash.bashrc
+/etc/bash_completion
+/etc/bash_completion.d
 /etc/hosts
 /etc/ld.so.cache
 /etc/localtime
@@ -28,6 +31,7 @@ $(command -v slirp4netns >/dev/null 2>&1 || echo /etc/resolv.conf)\
 /etc/pki
 /etc/ssl
 /etc/timezone
+/etc/zsh
 /lib
 /lib64
 /run/dbus/system_bus_socket
