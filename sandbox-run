@@ -323,8 +323,9 @@ _sandbox_init () {
     date="$(date +%s)" random_time_offset="$(( (date % 32768) * (date % 101) ))"
     [ -e "$ROOT/seccomp_filter.bin" ] && seccomp_filter="/seccomp_filter.bin" || seccomp_filter=
     # If root, avoid userns (permission problems). Also retain some caps.
-    [ "$_SANDBOX_ROOT" ] && caps=',+DAC_OVERRIDE,+NET_BIND_SERVICE' args= ||
-        args="--user --map-user $USER $mountbinfmt" caps=
+    caps="$(echo "${CAPS-}" | sed -E -e 's/[^A-Za-z_0-9+]+/,+/g; s/^([^+])/+\1/')"
+    [ "$_SANDBOX_ROOT" ] && caps=",+DAC_OVERRIDE,+NET_BIND_SERVICE${caps:+,$caps}" args= ||
+        caps="${caps:+,$caps}" args="--user --map-user $USER $mountbinfmt"
     unset _SANDBOX_ROOT
     wait
     # shellcheck disable=2086
@@ -334,8 +335,8 @@ _sandbox_init () {
         --keep-caps --root "$ROOT" --wd "$pwd" \
         setpriv ${seccomp_filter:+--seccomp-filter "$seccomp_filter"} \
             --bounding-set=-all,+NET_RAW$caps \
-            --inh-caps=-all,+NET_RAW \
-            --ambient-caps=-all,+NET_RAW \
+            --inh-caps=-all,+NET_RAW$caps \
+            --ambient-caps=-all,+NET_RAW$caps \
         "$0" --_sandbox_payload "$@" <"$keep_tty" &
     unshare_pid=$!
 
@@ -379,7 +380,7 @@ _sandbox_payload () {
 
 _filter_env () {
     env -0 | grep -Eze '^('\
-'VERBOSE|DEBUG|CLEANUP|RO_BIND|RW_BIND|DEFAULT_RO_BIND|DEFAULT_RW_BIND|PORTS|'\
+'VERBOSE|DEBUG|CLEANUP|RO_BIND|RW_BIND|DEFAULT_RO_BIND|DEFAULT_RW_BIND|PORTS|CAPS|'\
 'USER|LOGNAME|UID|PATH|TERM|HOME|HOSTNAME|DISPLAY|WAYLAND_DISPLAY|'\
 'LANGUAGE|LANG|LC_[^= ]*|TZ|'\
 'https?_proxy|HTTPS?_PROXY|'\

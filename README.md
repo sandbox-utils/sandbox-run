@@ -140,6 +140,8 @@ The following environment variables can be set to influence program behavior:
   Format like for Docker/podman `-p` switch: `host_port:guest_port[/protocol]`.
   Example: `PORTS=8080:8080,8123:123/udp`. This variable has no effect if host
   networking namespaces is shared (i.e. `slirp4netns` is unavailable).
+* **`CAPS=`**– List of capabilities to maintain
+  (default: `NET_RAW, DAC_OVERRIDE, NET_BIND_SERVICE` if run as root, `NET_RAW` otherwise).
 * **`DEFAULT_RO_BIND=`**, **`DEFAULT_RW_BIND=`**– Override default mount points.
   Set clear to disable default mounts like `/usr` and `/lib`.
 * **`VERBOSE=`**– Print to stderr verbose debug messages pertaining to sandbox initialization and cleanup.
@@ -231,6 +233,10 @@ To run the sandboxed process as **superuser**
 e.g. to open privileged ports, simply use `sudo`:
 ```shell
 sudo sandbox-run python -m http.server 80
+```
+If extra capabilities are required:
+```shell
+CAPS=+SYS_ADMIN,+all sandbox-run unshare --net true
 ```
 
 To run **GUI (X11) apps**, some prior success was achieved using e.g.:
