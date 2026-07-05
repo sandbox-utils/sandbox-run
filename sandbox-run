@@ -44,7 +44,8 @@ DEFAULT_RW_BIND="${DEFAULT_RW_BIND-\
 }"
 
 _RS="$(printf '\036')"
-_LF="$(printf '\012')"
+_LF='
+'
 pwd="$PWD"
 
 _split_str () { printf '%s' "$1" | case "$1" in *$_LF*) tr '\n' "$_RS" ;; *) tr ' ' "$_RS" ;; esac; }
