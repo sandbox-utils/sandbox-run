@@ -207,7 +207,8 @@ _chroot_procedure () (
     for pth in dev/zero dev/null dev/full dev/random dev/urandom dev/tty dev/console; do
         if [ -e "/$pth" ]; then
             # shellcheck disable=SC2015
-            [ -d "/$pth" ] && mkdir "$pth" || touch "$pth"
+            [ -d "/$pth" ] && mkdir "$pth" ||
+                mkdir -vp "${pth%/*}" && touch "$pth"
             mount -vo rbind,uid=0,gid=0,dev "/$pth" "$pth"
         fi
     done
