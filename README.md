@@ -48,13 +48,16 @@ with its CWD in `$PWD` and new root filesystem (_/_) in `$PWD/.sandbox`.
 This script implements **most of the functionality of
 [`bubblewrap`](https://github.com/containers/bubblewrap) and
 [`firejail`](https://github.com/netblue30/firejail)**
-([`bubblejail`](https://github.com/igo95862/bubblejail), `docker`, etc.—all
+([`bubblejail`](https://github.com/igo95862/bubblejail),
+`docker` (`podman`), etc.—all
 well-known Linux sandboxing tools that provide secure,
 isolated environments for running untrusted programs)
 **in about ~400 lines of pure POSIX shell**.
 
 You're on a terminal. There's nothing to build.
 You run it. It works.
+The one major dependency chain is package _util-linux_,
+but if you can't trust Linux, can you even trust yourself?
 
 > [!NOTE]
 > The repo also contains Bubblewrap wrapper
@@ -252,14 +255,25 @@ e.g. to open privileged ports, simply use `sudo`:
 ```shell
 sudo sandbox-run python -m http.server 80
 ```
+
 If extra capabilities are required:
 ```shell
-CAPS=+SYS_ADMIN,+all sandbox-run unshare --net true
+CAPS=+SYS_PTRACE sandbox-run strace -f malware
+
+CAPS=+SYS_ADMIN sandbox-run unshare --net id
 ```
 
 To run **GUI (X11) apps**, some prior success was achieved using e.g.:
 ```shell
 RO_BIND='/tmp/.X11-unix/X0' sandbox-run xterm
+```
+
+Use **NVIDIA for CUDA/compute** by exposing the various device handles
+and forwarding the relevant port:
+```shell
+RW_BIND='/dev/nvidia*' \
+PORTS=8080:8080 \
+  sandbox-run llama-server -m Qwen3
 ```
 
 <!-- TODO: Add Wayland example. -->
