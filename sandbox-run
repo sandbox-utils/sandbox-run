@@ -26,6 +26,7 @@ $(command -v slirp4netns >/dev/null 2>&1 || echo /etc/resolv.conf)\
 /etc/hosts
 /etc/ld.so.cache
 /etc/localtime
+/etc/manpath.config
 /etc/os-release
 /etc/pkcs11
 /etc/pki
