@@ -55,6 +55,7 @@ _verbose_filter () { if [ "$VERBOSE" ]; then cat >&2; else cat >/dev/null; fi }
 
 _warn () { category="${category-WARNING}" cat="${category:+$category:}"; echo "[${0##*/}]${cat:+ $cat} $*" >&3; }
 
+
 _cleanup () {
     trap : EXIT TERM INT HUP
     category='' _warn "Cleanup ..." 3>&2
@@ -87,6 +88,7 @@ _cleanup () {
     fi
 }
 
+
 _mount_path () {
     src="$1" dst="${2:-$1}" ro="${3:+,ro}"
     if [ -d "$src" ]; then
@@ -99,6 +101,7 @@ _mount_path () {
         _warn "'$src': No such file or directory"
     fi
 }
+
 
 _mount_bind () {
     spec="$1" ro="${2:-}"
@@ -128,6 +131,7 @@ _mount_bind () {
         "$(cd "$pwd"; realpath "${spec#*:}")" $ro
 }
 
+
 _generate_seccomp_filter () {
     command -v enosys >/dev/null 2>&1 || {
         # shellcheck disable=SC2016
@@ -155,6 +159,7 @@ unshare uselib userfaultfd ustat vhangup vm86 vm86old vserver" |
     rm "$tmp1" "$tmp2" &
     seccomp_filter_cleanup=1
 }
+
 
 _read_firejail_config () {
     tmp="./.tmp"
@@ -189,7 +194,8 @@ _read_firejail_config () {
     rm "$tmp" &
 }
 
-_chroot_procedure () (
+
+_setup_chroot () (
     cd "$ROOT"
     mkdir -vp dev proc sys tmp etc usr lib lib64 opt root var .git ".$HOME" ".$pwd"
 
@@ -270,7 +276,8 @@ _chroot_procedure () (
     [ ! -e "./firejail.profile" ] || _read_firejail_config
 )
 
-_sandbox_init () {
+
+_sandbox_setup () {
     # Prepare chroot
     # XXX: Ideally we would set up overlayfs with lower=/,upper=$ROOT, but for permissions ...
     mkdir -p "$ROOT"
@@ -292,7 +299,7 @@ _sandbox_init () {
     unset IFS; set +f
 
     self="$(case "$0" in /*) echo "$0" ;; *) realpath "$0" ;; esac)"
-    _maybe_verbose _chroot_procedure
+    _maybe_verbose _setup_chroot
 
     # Install seccomp filter if available
     [ -e "$ROOT/seccomp_filter.bin" ] || _generate_seccomp_filter
@@ -366,6 +373,7 @@ _sandbox_init () {
     return $?
 }
 
+
 _sandbox_payload () {
     # Inside the sandbox, run
     echo "[${0##*/}] uid:$(id -u) pid:$$ cwd:$PWD args: $*"
@@ -381,8 +389,10 @@ _sandbox_payload () {
     unset PORTS
 
     [ ! "$VERBOSE" ] || env | sort
+
     exec "$@"
 }
+
 
 _filter_env () {
     env -0 | grep -Eze '^('\
@@ -397,8 +407,9 @@ _filter_env () {
 # Use unshare --mount-binfmt switch if available
 unshare --help | grep -Fq mount-binfmt && mountbinfmt=--mount-binfmt || mountbinfmt=
 
+# Three-stage launcher
 case "${1:-}" in
-    --_sandbox_init) shift 1; _sandbox_init "$@"; exit $?; ;;
+    --_sandbox_setup) shift 1; _sandbox_setup "$@"; exit $?; ;;
     --_sandbox_payload) shift 1; _sandbox_payload "$@"; exit $?; ;;
     -h|--help|-?)
         if [ "${0##*/}" = 'sandbox-run' ]; then  # Else: --help refers to "npm"
@@ -418,7 +429,7 @@ exec env -i _SANDBOX_ROOT=$_SANDBOX_ROOT \
     VERBOSE=${VERBOSE-} DEBUG=${DEBUG-} \
     unshare $args --kill-child --mount-proc \
     --ipc --mount --pid --uts --cgroup \
-    "$0" --_sandbox_init "$@" \
+    "$0" --_sandbox_setup "$@" \
     5<<EOF
 $(_filter_env | tr '\0' "$_RS")
 EOF
