@@ -135,11 +135,15 @@ The following environment variables can be set to influence program behavior:
   **`RW_BIND=`**– Extra mount points to bind-mount read-only (or read-write respectively) inside the sandbox.
   Space- or newline-delimited (useful if argument paths themselves contain spaces).
   If any argument is like `src:dst`, path `src` is mounted as `dst` inside the sandbox.
-  These variables also support glob wildcard patterns.
-* **`PORTS=`**– Space- or comma-separated list of ports to forward from host to guest.
+  These variables also support **glob wildcard patterns**.
+* **`PORTS=`**– Space- or comma-separated list of ports to forward **from host to guest**.
   Format like for Docker/podman `-p` switch: `host_port:guest_port[/protocol]`.
   Example: `PORTS=8080:8080,8123:123/udp`. This variable has no effect if host
-  networking namespaces is shared (i.e. `slirp4netns` is unavailable).
+  networking namespace is shared (i.e. `slirp4netns` is unavailable).
+  See section [_Networking_](#networking) below.
+* **`SLIRP4NETNS_ARGS=`**— Extra arguments passed to `slirp4netns` binary.
+  Can be used especially to pass `--disable-host-loopback` and thus prevent
+  **guest-to-host** connections via default 10.0.2.2 gateway.
 * **`CAPS=`**– List of capabilities to maintain
   (default: `NET_RAW, DAC_OVERRIDE, NET_BIND_SERVICE` if run as root, `NET_RAW` otherwise).
 * **`DEFAULT_RO_BIND=`**, **`DEFAULT_RW_BIND=`**– Override default mount points.
@@ -216,6 +220,20 @@ To see what's failing, run the sandbox with something like
 ```shell
 sandbox-run colorstrace -f -e '%file,%process' my-failing-prog
 ```
+
+Networking
+----------
+Network connection is enabled via a **shared net namespace** or,
+preferably, via a
+[`slirp4netns`](https://github.com/rootless-containers/slirp4netns)
+bridge when available.
+
+Set `PORTS=` environment variable to enable port forwarding from host to guest.
+
+Connections from guest to host (via 10.0.2.2) are **enabled by default**.
+Set `SLIRP4NETNS_ARGS=--disable-host-loopback` to disable this gateway.
+
+See section [_Environment variables_](#environment-variables) above.
 
 
 Examples

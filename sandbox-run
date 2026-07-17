@@ -61,11 +61,7 @@ _cleanup () {
     trap : EXIT TERM INT HUP
     category='' _warn "Cleanup ..." 3>&2
     # Clean up slirp4netns if we started it
-    if [ "${slirp_pid-}" ]; then
-        kill "$slirp_pid" || true &
-        # shellcheck disable=SC2015
-        ( trap '' HUP; sleep .1; kill -KILL "$slirp_pid" 2>/dev/null || true; ) &
-    fi
+    [ ! "${slirp_tmpdir:-}" ] || rm -rf "$slirp_tmpdir"
 
     umount -vR "$ROOT/dev" "$ROOT$pwd" 2>&1
     mount_points="$(mount | grep -F "$ROOT" | cut -d' ' -f3 | sort -r)"
@@ -244,7 +240,7 @@ _setup_chroot () (
     getent passwd root "$USER" >etc/passwd &
 
     # Overlay some resources with empty/null to conceal them
-    mkdir -vp .empty-sandbox .empty-git
+    mkdir -vp .empty-sandbox
     mount -v --bind .empty-sandbox ".$pwd/${ROOT##*/}"
     find "$pwd" -maxdepth 4 -path "$ROOT" -prune -o -type f -name '.env' -print0 |
         xargs -P8 -0rn1 mount -v --bind /dev/null
@@ -330,6 +326,7 @@ _sandbox_setup () {
     # Set netns via slirp4netns
     hostname sandbox-run &
     command -v slirp4netns >/dev/null 2>&1 && netns='--net' || netns=
+    slirp_tmpdir=
 
     # Switch into a nobody:nogroup namespace
     [ -t 0 ] && keep_tty='/dev/tty' || keep_tty='/dev/fd/0'
@@ -357,20 +354,42 @@ _sandbox_setup () {
     # Netns configuration
     if [ "$netns" ]; then
         test -e "/proc/$unshare_pid/ns/net" ||
-            category='ERROR' _warn '/proc/{unshare_pid}/ns/net: No such file or directory'
-        fifo="$(mktemp -u)"; mkfifo "$fifo"
+            category='ERROR' _warn "/proc/$unshare_pid/ns/net: No such file or directory"
+
+        slirp_tmpdir="$(mktemp -d ${0##*/}_slirp4netns.XXXXXXXXXX)" \
+            ready_fd="$slirp_tmpdir/ready" exit_fd="$slirp_tmpdir/exit"
+        mkfifo "$ready_fd" "$exit_fd"
+        exec 7<>"$ready_fd" 8<>"$exit_fd"
+        rm -f "$ready_fd" "$exit_fd"
+
         tapname="tap-pid-$unshare_pid=$(echo "$*" | tr -cs '[:alnum:]' '-')"
-        [ "${PORTS:-}" ] && slirp_socket="$ROOT/slirp4netns.sock" || slirp_socket=
-        slirp4netns --configure --mtu=65520 --enable-ipv6 --enable-sandbox --disable-host-loopback \
-            ${slirp_socket:+--api-socket "$slirp_socket"} \
-            "$unshare_pid" "$tapname" >"$fifo" 2>&1 &
-        slirp_pid=$!
-        _verbose_filter <"$fifo" &
-        rm "$fifo"
+
+        slirp4netns --configure --mtu=65520 --enable-ipv6 --enable-sandbox --enable-seccomp \
+            --ready-fd 7 --exit-fd 8 \
+            ${PORTS:+--api-socket "$slirp_tmpdir/slirp4netns.sock"} \
+            ${SLIRP4NETNS_ARGS:-} \
+            "$unshare_pid" "$tapname" >&2 &
+        timeout -v 2 dd bs=1 count=1 <&7 >/dev/null 2>&1  # Wait until ready
+        # Setup port forwarding
+        (
+            IFS=', '
+            for spec in ${PORTS-}; do
+                host_port=${spec%%:*} t=${spec#*:} guest_port=${t%%/*}
+                proto=${t#"$guest_port"} proto=${proto#/}
+                socket_cmd () { printf "$@" | nc -w 1 -U "$slirp_tmpdir/slirp4netns.sock"; }
+                socket_cmd '{"execute":"add_hostfwd","arguments":{"proto":"%s","host_port":%d,"guest_port":%d}}' \
+                    "${proto:-tcp}" "$host_port" "$guest_port" |
+                socket_cmd '{"execute": "list_hostfwd"}'
+            done
+        )
     fi
 
     # Wait for the sandbox payload to finish
     wait "$unshare_pid"
+
+    # Kill slirp4netns. This is a no-op if fds are unasigned
+    exec 8>&- 7<&-
+
     return $?
 }
 
@@ -379,15 +398,7 @@ _sandbox_payload () {
     # Inside the sandbox, run
     echo "[${0##*/}] uid:$(id -u) pid:$$ cwd:$PWD args: $*"
 
-    # Set up port forwarding
-    [ ! "${PORTS-}" ] || [ -e /slirp4netns.sock ] || ! command -v slirp4netns >/dev/null 2>&1
-    for spec in $(echo "${PORTS-}" | tr ',' ' '); do
-        host_port="${spec%%:*}" t=${spec#*:} guest_port=${t%%/*}
-        proto=${t#"$guest_port"} proto=${proto#/}
-        printf '{"execute":"add_hostfwd","arguments":{"proto":"%s","host_port":%d,"guest_port":%d}}' "${proto:-tcp}" "$host_port" "$guest_port" |
-            nc -w 1 -U /slirp4netns.sock
-    done
-    unset PORTS
+    unset PORTS SLIRP4NETNS_ARGS
 
     [ ! "$VERBOSE" ] || env | sort
 
@@ -398,6 +409,7 @@ _sandbox_payload () {
 _filter_env () {
     env -0 | grep -Eze '^('\
 'VERBOSE|DEBUG|CLEANUP|RO_BIND|RW_BIND|DEFAULT_RO_BIND|DEFAULT_RW_BIND|PORTS|CAPS|'\
+'SLIRP4NETNS_ARGS|'\
 'USER|LOGNAME|UID|PATH|TERM|HOME|HOSTNAME|DISPLAY|WAYLAND_DISPLAY|'\
 'LANGUAGE|LANG|LC_[^= ]*|TZ|'\
 'https?_proxy|HTTPS?_PROXY|'\
