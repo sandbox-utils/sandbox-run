@@ -13,7 +13,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
-      - run: shellcheck -S warning sandbox-run tests/*.sh
+      - run: shellcheck -S warning sandbox-run* tests/*.sh
       - run: |
           sudo sysctl -w kernel.unprivileged_userns_clone=1
           # https://discourse.ubuntu.com/t/spec-unprivileged-user-namespace-restrictions-via-apparmor-in-ubuntu-23-10/37626
