@@ -10,4 +10,4 @@ echo "FOOBAR_DOTENV=1" > .env
 sandbox-run sh -c 'set -u; echo $FOOBAR_DOTENV'
 # Sanity checks
 sandbox-run sh -c 'set -u; echo $PWD'
-! sandbox-run sh -c 'set -u; echo $NONEXISTENT' 2>/dev/null
+! sandbox-run sh -c 'set -u; echo $NONEXISTENT' 2>/dev/null || exit 1

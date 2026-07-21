@@ -13,5 +13,5 @@ test -f ".sandbox-home/success"
 VERBOSE=1 sandbox-run.bwrap sh -c ':' 2>&1 | grep -Fq 'exec bwrap'
 BWRAP_ARGS='--setenv FOO bar' sandbox-run.bwrap sh -c 'test "$FOO" = "bar"'
 sandbox-run.bwrap sh -c 'test ! -e /etc/environment'
-! sandbox-run.bwrap sh -c 'test -e /etc/environment'
+! sandbox-run.bwrap sh -c 'test -e /etc/environment' || exit 1
 RO_BIND=/etc/environment sandbox-run.bwrap sh -c 'test -e /etc/environment'
