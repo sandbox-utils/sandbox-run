@@ -196,11 +196,6 @@ _setup_chroot () (
     cd "$ROOT"
     mkdir -vp dev proc sys tmp etc usr lib lib64 opt root var .git ".$HOME" ".$pwd"
 
-    # Mount CWD, but only if not equal to $HOME
-    # shellcheck disable=SC2015,SC2016
-    [ "$pwd" = "$HOME" ] && _warn '$PWD is $HOME: Not mounting $PWD' ||
-        mount -v --rbind "$pwd" ".$pwd" &
-
     # Mock /dev
     # Make sure filesystem superblock is owned by a mapped UID (i.e. 65534 -> 0)
     mount -t tmpfs -vo mode=0755,dev tmpfs dev
@@ -239,6 +234,10 @@ _setup_chroot () (
     getent group nogroup >etc/group &
     getent passwd root "$USER" >etc/passwd &
 
+    # Mount CWD, but only if not equal to $HOME
+    # shellcheck disable=SC2015,SC2016
+    [ "$pwd" = "$HOME" ] && _warn '$PWD is $HOME: Not mounting $PWD' ||
+        mount -v --rbind "$pwd" ".$pwd" &
     # Overlay some resources with empty/null to conceal them
     mkdir -vp .empty-sandbox
     mount -v --bind .empty-sandbox ".$pwd/${ROOT##*/}"
