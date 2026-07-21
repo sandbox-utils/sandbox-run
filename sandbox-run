@@ -237,7 +237,8 @@ _setup_chroot () (
     # Mount CWD, but only if not equal to $HOME
     # shellcheck disable=SC2015,SC2016
     [ "$pwd" = "$HOME" ] && _warn '$PWD is $HOME: Not mounting $PWD' ||
-        mount -v --rbind "$pwd" ".$pwd" &
+        mount -v --bind "$pwd" ".$pwd" &
+
     # Overlay some resources with empty/null to conceal them
     mkdir -vp .empty-sandbox
     mount -v --bind .empty-sandbox ".$pwd/${ROOT##*/}"
