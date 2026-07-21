@@ -35,7 +35,6 @@ $(command -v slirp4netns >/dev/null 2>&1 || echo /etc/resolv.conf)\
 /etc/zsh
 /lib
 /lib64
-/run/dbus/system_bus_socket
 /usr
 }"
 
