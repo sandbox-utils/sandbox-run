@@ -133,27 +133,27 @@ is respected, sourced, and exported to the sandbox environment.
 
 The following environment variables can be set to influence program behavior:
 
-* **`ROOT=`**– Path to sandbox root filesystem (default: `$PWD/.sandbox`).
+* **`ROOT=`** Path to sandbox root filesystem (default: `$PWD/.sandbox`).
 * **`RO_BIND=`**,
-  **`RW_BIND=`**– Extra mount points to bind-mount read-only (or read-write respectively) inside the sandbox.
+  **`RW_BIND=`** Extra mount points to bind-mount read-only (or read-write respectively) inside the sandbox.
   Space- or newline-delimited (useful if argument paths themselves contain spaces).
   If any argument is like `src:dst`, path `src` is mounted as `dst` inside the sandbox.
   These variables also support **glob wildcard patterns**.
-* **`PORTS=`**– Space- or comma-separated list of ports to forward **from host to guest**.
+* **`PORTS=`** Space- or comma-separated list of ports to forward **from host to guest**.
   Format like for Docker/podman `-p` switch: `host_port:guest_port[/protocol]`.
   Example: `PORTS=8080:8080,8123:123/udp`. This variable has no effect if host
   networking namespace is shared (i.e. `slirp4netns` is unavailable).
   See section [_Networking_](#networking) below.
-* **`SLIRP4NETNS_ARGS=`**— Extra arguments passed to `slirp4netns` binary.
+* **`SLIRP4NETNS_ARGS=`** Extra arguments passed to `slirp4netns` binary.
   Can be used especially to pass `--disable-host-loopback` and thus prevent
   **guest-to-host** connections via default 10.0.2.2 gateway.
-* **`CAPS=`**– List of capabilities to maintain
+* **`CAPS=`** List of capabilities to maintain
   (default: `NET_RAW, DAC_OVERRIDE, NET_BIND_SERVICE` if run as root, `NET_RAW` otherwise).
-* **`DEFAULT_RO_BIND=`**, **`DEFAULT_RW_BIND=`**– Override default mount points.
+* **`DEFAULT_RO_BIND=`**, **`DEFAULT_RW_BIND=`** Override default mount points.
   Set clear to disable default mounts like `/usr` and `/lib`.
-* **`VERBOSE=`**– Print to stderr verbose debug messages pertaining to sandbox initialization and cleanup.
-* **`DEBUG=`**– Even more verbose debugging, useful in development of the wrapper script itself.
-* **`CLEANUP=`**– If set, remove `$ROOT` after execution.
+* **`VERBOSE=`** Print to stderr verbose debug messages pertaining to sandbox initialization and cleanup.
+* **`DEBUG=`** Even more verbose debugging, useful in development of the wrapper script itself.
+* **`CLEANUP=`** If set, remove `$ROOT` after execution.
 
 
 #### Symlinks
