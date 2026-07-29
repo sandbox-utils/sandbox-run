@@ -143,6 +143,8 @@ The following environment variables can be set to influence program behavior:
   Format like for Docker/podman `-p` switch: `host_port:guest_port[/protocol]`.
   Example: `PORTS=8080:8080,8123:123/udp`. This variable has no effect if host
   networking namespace is shared (i.e. `slirp4netns` is unavailable).
+  If you set the variable to `PORTS=shared`, `slirp4netns` is unused even if available and the
+  network namespace is _shared_. This is temporarily useful e.g in **OAuth handshakes**.
   See section [_Networking_](#networking) below.
 * **`SLIRP4NETNS_ARGS=`** Extra arguments passed to `slirp4netns` binary.
   Can be used especially to pass `--disable-host-loopback` and thus prevent

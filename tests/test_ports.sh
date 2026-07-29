@@ -30,4 +30,10 @@ if SLIRP4NETNS_ARGS=--disable-host-loopback \
     code=1
 fi
 kill -KILL $!
-exit $code
+[ $code -eq 0 ] || exit $code
+
+## Force network is shared
+PORTS=shared python -m http.server 18124 &
+sleep 1
+sandbox-run curl 'http://10.0.2.2:18124' | grep -Fq '<title>Directory listing'
+kill -KILL $!
