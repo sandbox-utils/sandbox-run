@@ -324,7 +324,8 @@ _sandbox_setup () {
 
     # Set netns via slirp4netns
     hostname sandbox-run &
-    command -v slirp4netns >/dev/null 2>&1 && netns='--net' || netns=
+    command -v slirp4netns >/dev/null 2>&1 && netns='--net' ||
+        netns= && _warn 'slirp4netns command unavailable. Network namespace is shared.'
     slirp_tmpdir=
 
     # Switch into a nobody:nogroup namespace

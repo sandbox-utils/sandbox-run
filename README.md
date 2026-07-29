@@ -251,9 +251,9 @@ sandbox-run my-ai-prog
 
 To run the sandboxed process as **superuser**
 (while still retaining most of the security functionality of the container sandbox),
-e.g. to open privileged ports, simply use `sudo`:
+e.g. to open privileged ports, use `sudo`:
 ```shell
-sudo sandbox-run python -m http.server 80
+sudo PORTS=8000:80 sandbox-run python -m http.server 80
 ```
 
 If extra capabilities are required:
@@ -262,6 +262,7 @@ CAPS=+SYS_PTRACE sandbox-run strace -f malware
 
 CAPS=+SYS_ADMIN sandbox-run unshare --net id
 ```
+Try it, you don't even need sudo/root!
 
 To run **GUI (X11) apps**, some prior success was achieved using e.g.:
 ```shell
