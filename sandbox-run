@@ -231,7 +231,7 @@ _setup_chroot () (
     [ -x ".$self" ] || _mount_bind "$self" ro
 
     # /etc
-    getent group nogroup >etc/group &
+    getent group nogroup "$_SANDBOX_GROUP" >etc/group &
     getent passwd root "$USER" >etc/passwd &
 
     # Mount CWD, but only if not equal to $HOME
@@ -330,7 +330,7 @@ _sandbox_setup () {
     case "${PORTS:-}" in *shared*) netns='' PORTS=''; _warn 'Network namespace requested shared with the host' ;; esac
     slirp_tmpdir=
 
-    # Switch into a nobody:nogroup namespace
+    # If stdin is a terminal, keep it in the backgrounded unshare process (&)
     [ -t 0 ] && keep_tty='/dev/tty' || keep_tty='/dev/fd/0'
 
     date="$(date +%s)" random_time_offset="$(( (date % 32768) * (date % 101) ))"
@@ -338,8 +338,9 @@ _sandbox_setup () {
     # If root, avoid userns (permission problems). Also retain some caps.
     caps="$(echo "${CAPS-}" | sed -E -e 's/[^A-Za-z_0-9+]+/,+/g; s/^([^+])/+\1/')"
     [ "$_SANDBOX_ROOT" ] && caps=",+DAC_OVERRIDE,+NET_BIND_SERVICE${caps:+,$caps}" args= ||
-        caps="${caps:+,$caps}" args="--user --map-user $USER $mountbinfmt"
+        caps="${caps:+,$caps}" args="--user --map-user $USER --map-group $_SANDBOX_GROUP $mountbinfmt"
     unset _SANDBOX_ROOT
+    # Gather parallel/subprocesses
     wait
     # shellcheck disable=2086
     unshare $args --kill-child --mount-proc \
@@ -400,7 +401,7 @@ _sandbox_payload () {
     # Inside the sandbox, run
     echo "[${0##*/}] uid:$(id -u) pid:$$ cwd:$PWD args: $*"
 
-    unset PORTS SLIRP4NETNS_ARGS
+    unset PORTS SLIRP4NETNS_ARGS _SANDBOX_GROUP
 
     [ ! "$VERBOSE" ] || env | sort
 
@@ -438,9 +439,9 @@ esac
 # Keep --net, --time namespaces. Unshare them in the next stage.
 # Don't userns if already root, avoid permission problems.
 [ "$(id -u)" = 0 ] && _SANDBOX_ROOT=1 args= ||
-    args="--user --map-root-user $mountbinfmt" _SANDBOX_ROOT=
+    args="--map-current-user --map-root-user $mountbinfmt" _SANDBOX_ROOT=
 # shellcheck disable=SC2086
-exec env -i _SANDBOX_ROOT=$_SANDBOX_ROOT \
+exec env -i _SANDBOX_ROOT=$_SANDBOX_ROOT _SANDBOX_GROUP="$(id -g)" \
     VERBOSE=${VERBOSE-} DEBUG=${DEBUG-} \
     unshare $args --kill-child --mount-proc \
     --ipc --mount --pid --uts --cgroup \
