@@ -24,6 +24,7 @@ $(command -v slirp4netns >/dev/null 2>&1 || echo /etc/resolv.conf)\
 /etc/bash.bashrc
 /etc/bash_completion
 /etc/bash_completion.d
+/etc/fonts
 /etc/hosts
 /etc/ld.so.cache
 /etc/localtime

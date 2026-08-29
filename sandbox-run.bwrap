@@ -58,10 +58,11 @@ paths='
 /etc/bash_completion
 /etc/bash_completion.d
 /etc/resolv.conf
-/etc/ssl
+/etc/fonts
 /etc/hosts
-/etc/pki
 /etc/pkcs11
+/etc/pki
+/etc/ssl
 /etc/ld.so.cache
 /etc/ld.so.conf.d
 /etc/localtime
@@ -70,7 +71,6 @@ paths='
 /etc/zsh
 /lib
 /lib64
-/run/dbus/system_bus_socket
 /usr
 '
 # ld.so.conf.d: https://containertoolbx.org/doc/#ldconfig8
