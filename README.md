@@ -2,46 +2,30 @@ sandbox-run: run command in a secure OS sandbox
 ===============================================
 
 [![Build status](https://img.shields.io/github/actions/workflow/status/sandbox-utils/sandbox-run/ci.yml?branch=master&style=for-the-badge)](https://github.com/sandbox-utils/sandbox-run/actions)
+[![Coverage: 96%](https://img.shields.io/badge/Covr-96%25-brightgreen?style=for-the-badge)](https://github.com/sandbox-utils/sandbox-run/actions)
+[![Issues](https://img.shields.io/github/issues/sandbox-utils/sandbox-run?style=for-the-badge)](https://github.com/sandbox-utils/sandbox-run/issues)
 [![Language: shell / Bash](https://img.shields.io/badge/lang-Shell-peachpuff?style=for-the-badge)](https://github.com/sandbox-utils/sandbox-run)
 [![Source lines of code](https://img.shields.io/endpoint?url=https%3A%2F%2Fghloc.vercel.app%2Fapi%2Fsandbox-utils%2Fsandbox-run%2Fbadge?filter=sandbox-run%26format=human&style=for-the-badge&label=SLOC&color=skyblue)](https://ghloc.vercel.app/sandbox-utils/sandbox-run)
 [![Script size](https://img.shields.io/github/size/sandbox-utils/sandbox-run/sandbox-run?style=for-the-badge&color=skyblue)](https://github.com/sandbox-utils/sandbox-run)
-[![Issues](https://img.shields.io/github/issues/sandbox-utils/sandbox-run?style=for-the-badge)](https://github.com/sandbox-utils/sandbox-run/issues)
-[![Sponsors](https://img.shields.io/github/sponsors/kernc?color=pink&style=for-the-badge)](https://github.com/sponsors/kernc)
 
 
 #### Problem statement
 
-Running other people's programs is inherently insecure.
-[Rogue dependencies](https://www.google.com/search?q=malicious+python+packages&tbm=nws)\*
-🎯 or [hacked library code](https://www.google.com/search?q=(hacked+OR+hijacked+OR+backdoored+OR+"supply+chain+attack")+(npm+OR+pypi)&tbm=nws&num=100)
-:pirate_flag: ([et cet.](https://slsa.dev/spec/draft/threats-overview) :warning:)
-**can wreak havoc, including access all your private parts** :bangbang:—think
-all current user's credentials and more personal bits like:
-* `~/.ssh`,
-* `~/.pki/nssdb/`,
-* `~/.mozilla/firefox/<profile>/key4.db`,
-* `~/.mozilla/firefox/<profile>/formhistory.sqlite` ...
-
-<sub>✱ Running any
-[Electron app](https://www.electronjs.org/apps)
-relies on impeccability of hundreds or thousands of dependencies, NodeJS and Chromium to say the least! 😬</sub>
-
+> [_Running other people's programs is inherently insecure._](https://github.com/sandbox-utils/#problem-statement)
 
 #### Solution
 
-Run scary software in separate secure containers:
-```shell
-podman run --rm -it -v "$PWD:$PWD" --workdir="$PWD" \
-           --net=host debian:stable-slim ./scary-binary
-```
-or you can simply:
+The [list of potential solutions](https://github.com/sandbox-utils/#solutions) includes the
+utility from this repo:
+
 ```shell
 sandbox-run scary-binary
 ```
-(e.g. `sandbox-run npx @google/gemini-cli`)
+(e.g. `sandbox-run npx @google/antigravity-sdk`)
 which relies on [**unshare**](https://manpages.debian.org/unstable/unshare) (from
 `util-linux` package) to spawn your native OS "container" under the hood,
-and (in case of `npx @google/gemini-cli`), after downloading almost 500 MB ❗ of JavaScript _sources_,
+and (in case of `npx @google/antigravity-sdk`),
+after downloading almost 500 MB ❗ of JavaScript _sources_,
 executes this untrusted third-party's Node/NPM package securely sandboxed,
 with its CWD in `$PWD` and new root filesystem (_/_) in `$PWD/.sandbox`.
 
@@ -154,7 +138,7 @@ The following environment variables can be set to influence program behavior:
 * **`DEFAULT_RO_BIND=`**, **`DEFAULT_RW_BIND=`** Override default mount points.
   Set clear to disable default mounts like `/usr` and `/lib`.
 * **`VERBOSE=`** Print to stderr verbose debug messages pertaining to sandbox initialization and cleanup.
-* **`DEBUG=`** Even more verbose debugging, useful in development of the wrapper script itself.
+* **`DEBUG=`** Even more verbose debugging, useful only in development of the wrapper script itself.
 * **`CLEANUP=`** If set, remove `$ROOT` after execution.
 
 
@@ -247,7 +231,7 @@ To **pass extra environment variables**, other than those filtered by default,
 use an **`.env` file**:
 ```shell
 echo 'OPENAI_API_KEY=1111111111' > .env
-sandbox-run env | grep API_KEY  # Verify the variables are set
+sandbox-run env | grep KEY  # Verify the variables are set
 sandbox-run my-ai-prog
 ```
 
@@ -271,6 +255,8 @@ To run **GUI (X11) apps**, some prior success was achieved using e.g.:
 RO_BIND='/tmp/.X11-unix/X0' sandbox-run xterm
 ```
 
+<!-- TODO: Add Wayland example. -->
+
 Use **NVIDIA for CUDA/compute** by exposing the various device handles
 and forwarding the relevant port:
 ```shell
@@ -279,7 +265,12 @@ PORTS=8080:8080 \
   sandbox-run llama-server -m Qwen3
 ```
 
-<!-- TODO: Add Wayland example. -->
+For PyTorch/CUDA, additionally need /sys/bus/pci/devices
+```shell
+RW_BIND='/dev/nvidia*' \
+RO_BIND='/sys' \
+  sandbox-run python3 -c 'import torch; print(torch.cuda.is_available())'
+```
 
 **Hide files** inside the sandbox by bind-mounting _/dev/null_ over them.
 Hide directories by bind-mounting empty directories over them.
@@ -292,10 +283,10 @@ RO_BIND="/dev/null:$PWD/hidden/file $empty_dir:$PWD/hidden/dir" \
 
 Contributing
 ------------
-You see a mistake—you fix it. Thanks!
+You find a mistake—you fix it. Thanks!
 
 
 Alternatives
 ------------
-See a few alternatives discussed over at sister project
-[`sandbox-venv`](https://github.com/sandbox-utils/sandbox-venv/#Viable-alternatives).
+See a few alternatives discussed over at the
+[_sandbox-utils_ collection page](https://github.com/sandbox-utils/).
