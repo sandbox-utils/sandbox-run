@@ -66,7 +66,8 @@ _cleanup () (
     [ ! "${slirp_tmpdir:-}" ] || rm -rf "$slirp_tmpdir"
 
     umount -vR "$ROOT/dev" "$ROOT$pwd" 2>&1
-    mount_points="$(mount | grep -F "$ROOT" | cut -d' ' -f3 | sort -r)"
+    # Mount points under ROOT other than ROOT itself
+    mount_points="$(mount | cut -d' ' -f3 | grep -F "$ROOT/" | sort -ur)"
     echo "$mount_points" | xargs -P8 -rn1 umount -vR 2>&1
 
     cd "$ROOT"
@@ -281,6 +282,10 @@ _sandbox_setup () {
     # Prepare chroot
     # XXX: Ideally we would set up overlayfs with lower=/,upper=$ROOT, but for permissions ...
     mkdir -p "$ROOT"
+    # $ROOT must be a mount point for pivot_root
+    # https://man7.org/linux/man-pages/man2/pivot_root.2.html#DESCRIPTION
+    mount --make-rprivate /
+    mount --bind "$ROOT" "$ROOT"
 
     trap 'exit 130' INT
     trap 'exit 143' TERM
