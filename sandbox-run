@@ -279,6 +279,11 @@ _sandbox_setup () {
     # Prepare chroot
     # XXX: Ideally we would set up overlayfs with lower=/,upper=$ROOT, but for permissions ...
     mkdir -p "$ROOT"
+    # $ROOT must be a mount point for pivot_root
+    # https://man7.org/linux/man-pages/man2/pivot_root.2.html#DESCRIPTION
+    mount --make-rprivate /
+    mount --bind "$ROOT" "$ROOT"
+
     trap '_maybe_verbose _cleanup' EXIT TERM INT HUP
     # Duplicate stderr for really important messages by _warn()
     exec 3>&2
