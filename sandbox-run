@@ -356,9 +356,9 @@ _sandbox_setup () {
         --ipc --mount $netns --pid --uts --cgroup --time \
         --keep-caps --root "$ROOT" --wd "$pwd" \
         setpriv ${seccomp_filter:+--seccomp-filter "$seccomp_filter"} \
-            --bounding-set=-all,+NET_RAW$caps \
-            --inh-caps=-all,+NET_RAW$caps \
-            --ambient-caps=-all,+NET_RAW$caps \
+            --bounding-set=-all,+SETFCAP,+NET_RAW$caps \
+            --inh-caps=-all,+SETFCAP,+NET_RAW$caps \
+            --ambient-caps=-all,+SETFCAP,+NET_RAW$caps \
         "$0" --_sandbox_payload "$@" <"$keep_tty" &
     unshare_pid=$!
 
