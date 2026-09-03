@@ -327,7 +327,7 @@ _sandbox_setup () {
     # Set netns via slirp4netns
     hostname sandbox-run &
     command -v slirp4netns >/dev/null 2>&1 && netns='--net' ||
-        netns= && _warn 'slirp4netns command unavailable. Network namespace is shared.'
+         { netns= ; _warn 'slirp4netns command unavailable. Network namespace is shared.'; }
     case "${PORTS:-}" in *shared*) netns='' PORTS=''; _warn 'Network namespace requested shared with the host' ;; esac
     slirp_tmpdir=
 
