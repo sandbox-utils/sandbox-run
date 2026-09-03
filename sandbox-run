@@ -59,9 +59,11 @@ _verbose_filter () { if [ "$VERBOSE" ]; then cat >&2; else cat >/dev/null; fi }
 _warn () { category="${category-WARNING}" cat="${category:+$category:}"; echo "[${0##*/}]${cat:+ $cat} $*" >&3; }
 
 
-_cleanup () {
+_cleanup () (
+    exit_status=$?
+    set +e
     trap : EXIT TERM INT HUP
-    category='' _warn "Cleanup ..." 3>&2
+    category=DEBUG _warn "Cleanup ..." 3>&2
     # Clean up slirp4netns if we started it
     [ ! "${slirp_tmpdir:-}" ] || rm -rf "$slirp_tmpdir"
 
@@ -76,17 +78,19 @@ _cleanup () {
     rm -vf etc/resolv.conf || true &
     IFS="$_RS"
     # shellcheck disable=SC2046
-    find $(_split_str "$mount_points") -type f -empty -print0 | xargs -0rn8 rm  # touch-ed files
+    find $(_split_str "$mount_points") -type f -empty -delete  # touch-ed files
     rm -vf ./etc/passwd ./etc/group &  # Created /etc
     find . -type d -empty -delete
+
     cd -
     ! command -v tree >/dev/null 2>&1 || tree --dirsfirst -hfaL 4 "${ROOT##*/}"
 
     if [ "$CLEANUP" ]; then rm -rfv "$ROOT"
     elif [ "$VERBOSE" ]; then category='' _warn "rootfs workdir in \"$ROOT\""
     fi
-}
-
+    wait || true
+    exit $exit_status
+)
 
 _mount_path () {
     src="$1" dst="${2:-$1}" ro="${3:+,ro}"
@@ -342,6 +346,7 @@ _sandbox_setup () {
     [ "$_SANDBOX_ROOT" ] && caps=",+DAC_OVERRIDE,+NET_BIND_SERVICE${caps:+,$caps}" args= ||
         caps="${caps:+,$caps}" args="--user --map-user $USER --map-group $_SANDBOX_GROUP $mountbinfmt"
     unset _SANDBOX_ROOT
+
     # Gather parallel/subprocesses
     wait
     # shellcheck disable=2086
@@ -390,12 +395,13 @@ _sandbox_setup () {
     fi
 
     # Wait for the sandbox payload to finish
-    wait "$unshare_pid"
+    test -d /proc/$((unshare_pid))  # Assert
+    set +e; wait $((unshare_pid)); exit_status=$?; set -e
 
     # Kill slirp4netns. This is a no-op if fds are unasigned
     exec 8>&- 7<&-
 
-    return $?
+    return $exit_status
 }
 
 
