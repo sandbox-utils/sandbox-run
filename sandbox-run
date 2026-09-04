@@ -240,8 +240,9 @@ _setup_chroot () (
 
     # Mount CWD, but only if not equal to $HOME
     # shellcheck disable=SC2015,SC2016
-    [ "$pwd" = "$HOME" ] && _warn '$PWD is $HOME: Not mounting $PWD' ||
-        mount -v --bind "$pwd" ".$pwd" &
+    if [ "$pwd" = "$HOME" ]; then _warn '$PWD is $HOME: Not mounting $PWD'
+    elif [ "$pwd" = '/' ]; then _warn '$PWD is / (rootfs): Not mounting $PWD'
+    else mount -v --rbind "$pwd" ".$pwd" & fi
 
     # Overlay some resources with empty/null to conceal them
     mkdir -vp .empty-sandbox
@@ -356,11 +357,27 @@ _sandbox_setup () {
 
     # Gather parallel/subprocesses
     wait
-    # shellcheck disable=2086
-    unshare $args --kill-child --mount-proc \
-        --monotonic $random_time_offset --boottime $random_time_offset \
-        --ipc --mount $netns --pid --uts --cgroup --time \
-        --keep-caps --root "$ROOT" --wd "$pwd" \
+
+    # Enter sandbox
+    # Pivot root into $ROOT so it becomes / in this mount namespace
+    # which makes nested CLONE_NEWUSER continue to work.
+    # https://man7.org/linux/man-pages/man2/unshare.2.html#ERRORS
+    # https://man7.org/linux/man-pages/man2/pivot_root.2.html#DESCRIPTION
+    # https://man7.org/linux/man-pages/man8/pivot_root.8.html#EXAMPLE
+    # shellcheck disable=SC2016
+    unshare --mount $netns --wd "$ROOT" \
+        sh -c '
+            pivot_root . .
+            # Cricial steps from pivot_root(8) avoid "unshare failed: Operation not permitted"
+            mount -t proc -o nosuid,nodev,noexec,relatime proc /proc
+            umount -l .
+
+            exec "$@"
+            ' sh \
+        unshare $args --kill-child --mount-proc \
+            --monotonic $((random_time_offset)) --boottime $((random_time_offset)) \
+            --ipc --mount --pid --uts --cgroup --time \
+            --keep-caps --wd "$pwd" \
         setpriv ${seccomp_filter:+--seccomp-filter "$seccomp_filter"} \
             --bounding-set=-all,+SETFCAP,+NET_RAW$caps \
             --inh-caps=-all,+SETFCAP,+NET_RAW$caps \
@@ -373,7 +390,7 @@ _sandbox_setup () {
         test -e "/proc/$unshare_pid/ns/net" ||
             category='ERROR' _warn "/proc/$unshare_pid/ns/net: No such file or directory"
 
-        slirp_tmpdir="$(mktemp -d ${0##*/}_slirp4netns.XXXXXXXXXX)" \
+        slirp_tmpdir="$(mktemp -dp "$ROOT/tmp" "${0##*/}_slirp4netns.XXXXXXXXXX")" \
             ready_fd="$slirp_tmpdir/ready" exit_fd="$slirp_tmpdir/exit"
         mkfifo "$ready_fd" "$exit_fd"
         exec 7<>"$ready_fd" 8<>"$exit_fd"
