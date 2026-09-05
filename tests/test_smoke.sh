@@ -3,6 +3,9 @@ set -eux
 
 . "${0%/*}/.init.sh"
 
+# stdout is clean
+test "$(sandbox-run sh -c 'echo clean')" = clean
+
 # Awk works via /etc/alternatives
 sandbox-run sh -c 'awk -V | grep -Fq "GNU Awk"'
 

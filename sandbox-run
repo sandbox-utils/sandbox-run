@@ -407,11 +407,11 @@ _sandbox_setup () {
 
 _sandbox_payload () {
     # Inside the sandbox, run
-    echo "[${0##*/}] uid:$(id -u) pid:$$ cwd:$PWD args: $*"
+    echo "[${0##*/}] uid:$(id -u) pid:$$ cwd:$PWD args: $*" >&2
 
     unset PORTS SLIRP4NETNS_ARGS _SANDBOX_GROUP
 
-    [ ! "$VERBOSE" ] || env | sort
+    [ ! "$VERBOSE" ] || env | sort >&2
 
     exec "$@"
 }
