@@ -53,14 +53,12 @@ pwd="$PWD"
 
 _split_str () { printf '%s' "$1" | case "$1" in *$_LF*) tr '\n' "$_RS" ;; *) tr ' ' "$_RS" ;; esac; }
 
-_maybe_verbose () { if [ "$VERBOSE" ]; then "$@" >&2; else "$@" >/dev/null; fi }
-_verbose_filter () { if [ "$VERBOSE" ]; then cat >&2; else cat >/dev/null; fi }
+_maybe_verbose () { if [ "$VERBOSE" ]; then "$@" >&2; else "$@" >/dev/null 2>&1; fi }
 
 _warn () { category="${category-WARNING}" cat="${category:+$category:}"; echo "[${0##*/}]${cat:+ $cat} $*" >&3; }
 
 
 _cleanup () (
-    exit_status=$?
     set +e
     trap : EXIT TERM INT HUP
     category=DEBUG _warn "Cleanup ..." 3>&2
@@ -89,7 +87,6 @@ _cleanup () (
     elif [ "$VERBOSE" ]; then category='' _warn "rootfs workdir in \"$ROOT\""
     fi
     wait || true
-    exit $exit_status
 )
 
 _mount_path () {
@@ -284,7 +281,10 @@ _sandbox_setup () {
     # Prepare chroot
     # XXX: Ideally we would set up overlayfs with lower=/,upper=$ROOT, but for permissions ...
     mkdir -p "$ROOT"
-    trap '_maybe_verbose _cleanup' EXIT TERM INT HUP
+
+    trap 'exit 130' INT
+    trap 'exit 143' TERM
+    trap 'code=$?; _maybe_verbose _cleanup; exit $((code))' EXIT
     # Duplicate stderr for really important messages by _warn()
     exec 3>&2
 
