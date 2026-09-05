@@ -200,6 +200,18 @@ _setup_chroot () (
     cd "$ROOT"
     mkdir -vp dev proc sys tmp run etc usr lib lib64 opt root var .git ".$HOME" ".$pwd"
 
+    # Mount CWD synchronously BEFORE populating $ROOT to prevent duplicating sub-mounts
+    if [ "$pwd" = "$HOME" ]; then _warn '$PWD is $HOME: Not mounting $PWD'
+    elif [ "$pwd" = '/' ]; then _warn '$PWD is / (rootfs): Not mounting $PWD'
+    else mount -v --rbind "$pwd" ".$pwd"; fi
+
+    # Conceal .sandbox ROOT inside the sandbox
+    mkdir -vp .empty-sandbox ".$ROOT"
+    mount -v --rbind .empty-sandbox ".$ROOT"
+    # Conceal .env files
+    find "$pwd" -maxdepth 4 -path "$ROOT" -prune -o -type f -name '.env' -print0 |
+        xargs -P8 -0rn1 mount -v --bind /dev/null
+
     # Mock /dev
     # Make sure filesystem superblock is owned by a mapped UID (i.e. 65534 -> 0)
     mount -t tmpfs -vo mode=0755,dev tmpfs dev
@@ -241,17 +253,6 @@ _setup_chroot () (
     getent group nogroup "$_SANDBOX_GROUP" >etc/group &
     getent passwd root "$USER" >etc/passwd &
 
-    # Mount CWD, but only if not equal to $HOME
-    # shellcheck disable=SC2015,SC2016
-    if [ "$pwd" = "$HOME" ]; then _warn '$PWD is $HOME: Not mounting $PWD'
-    elif [ "$pwd" = '/' ]; then _warn '$PWD is / (rootfs): Not mounting $PWD'
-    else mount -v --rbind "$pwd" ".$pwd" & fi
-
-    # Overlay some resources with empty/null to conceal them
-    mkdir -vp .empty-sandbox
-    mount -v --bind .empty-sandbox ".$pwd/${ROOT##*/}"
-    find "$pwd" -maxdepth 4 -path "$ROOT" -prune -o -type f -name '.env' -print0 |
-        xargs -P8 -0rn1 mount -v --bind /dev/null
     # (Re)mount .git read-only
     IFS="$_RS"
     for git_dir in $(find "$pwd" -maxdepth 4 -path "$ROOT" -prune -o -type d -name '.git' -print0 |
