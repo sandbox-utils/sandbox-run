@@ -73,7 +73,7 @@ _cleanup () (
     cd "$ROOT"
     [ ! "${seccomp_filter_cleanup:-}" ] || rm -v "seccomp_filter.bin" &
     [ ! "${slirp_socket-}" ] || rm -vf "$slirp_socket" || true &
-    rm -vf bin sbin || true &  # Symlinks
+    rm -vf bin sbin var/run || true &  # Symlinks
     rm -vf etc/resolv.conf || true &
     IFS="$_RS"
     # shellcheck disable=SC2046
@@ -198,15 +198,17 @@ _read_firejail_config () {
 
 _setup_chroot () (
     cd "$ROOT"
-    mkdir -vp dev proc sys tmp etc usr lib lib64 opt root var .git ".$HOME" ".$pwd"
+    mkdir -vp dev proc sys tmp run etc usr lib lib64 opt root var .git ".$HOME" ".$pwd"
 
     # Mock /dev
     # Make sure filesystem superblock is owned by a mapped UID (i.e. 65534 -> 0)
     mount -t tmpfs -vo mode=0755,dev tmpfs dev
+    mount -t tmpfs -vo mode=0755,nosuid,nodev,noexec,relatime tmpfs run
     mkdir -vp dev/pts dev/shm
     mount -t devpts -o "newinstance,ptmxmode=0666" devpts dev/pts
     mount -t tmpfs tmpfs dev/shm &
-    for pth in dev/zero dev/null dev/full dev/random dev/urandom dev/tty dev/console; do
+    for pth in zero null full random urandom tty console net/tun; do
+        pth="dev/$pth"
         if [ -e "/$pth" ]; then
             # shellcheck disable=SC2015
             [ -d "/$pth" ] && mkdir "$pth" ||
@@ -220,6 +222,7 @@ _setup_chroot () (
     ln -vs /proc/self/fd/0 dev/stdin &
     ln -vs /proc/self/fd/1 dev/stdout &
     ln -vs /proc/self/fd/2 dev/stderr &
+    ln -vs /run var/ 2>/dev/null || true &  # File exists
 
     # Mount default dirs, usr, lib
     IFS="$_RS"
@@ -398,12 +401,15 @@ _sandbox_setup () {
 
         tapname="tap-pid-$unshare_pid=$(echo "$*" | tr -cs '[:alnum:]' '-')"
 
-        slirp4netns --configure --mtu=65520 --enable-ipv6 --enable-sandbox --enable-seccomp \
-            --ready-fd 7 --exit-fd 8 \
-            ${PORTS:+--api-socket "$slirp_tmpdir/slirp4netns.sock"} \
-            ${SLIRP4NETNS_ARGS:-} \
-            "$unshare_pid" "$tapname" >&2 &
-        timeout -v 2 dd bs=1 count=1 <&7 >/dev/null 2>&1  # Wait until ready
+        _maybe_verbose \
+            slirp4netns --configure --mtu=65520 --enable-ipv6 --enable-sandbox --enable-seccomp \
+                --ready-fd 7 --exit-fd 8 \
+                ${PORTS:+--api-socket "$slirp_tmpdir/slirp4netns.sock"} \
+                ${SLIRP4NETNS_ARGS:-} \
+                "$unshare_pid" "$tapname" &
+        timeout -v 2 dd bs=1 count=1 <&7 >/dev/null 2>&1 || {
+            category=ERROR _warn 'Slirp not ready in time'; exit 12
+        }
         # Setup port forwarding
         (
             IFS=', '
