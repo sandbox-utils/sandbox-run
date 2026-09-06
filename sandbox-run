@@ -313,7 +313,7 @@ _sandbox_setup () {
     # But make sure sbin utils are on path even if we were initially run by a normal user
     case "$PATH" in */sbin/*) ;; *) PATH="$PATH:/usr/local/sbin:/usr/sbin:/sbin" ;; esac
 
-    self="$(case "$0" in /*) echo "$0" ;; *) realpath "$0" ;; esac)"
+    self="$(realpath "$0")"
     _maybe_verbose _setup_chroot
 
     # Install seccomp filter if available
