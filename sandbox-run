@@ -369,7 +369,7 @@ _sandbox_setup () {
     # https://man7.org/linux/man-pages/man2/pivot_root.2.html#DESCRIPTION
     # https://man7.org/linux/man-pages/man8/pivot_root.8.html#EXAMPLE
     # shellcheck disable=SC2016
-    unshare --mount $netns --wd "$ROOT" \
+    exec unshare --mount $netns --wd "$ROOT" \
         sh -c '
             pivot_root . .
             # Cricial steps from pivot_root(8) avoid "unshare failed: Operation not permitted"
@@ -380,7 +380,7 @@ _sandbox_setup () {
             ' sh \
         unshare $args --kill-child --mount-proc \
             --monotonic $((random_time_offset)) --boottime $((random_time_offset)) \
-            --ipc --mount --pid --uts --cgroup --time \
+            --pid --time \
             --keep-caps --wd "$pwd" \
         setpriv ${seccomp_filter:+--seccomp-filter "$seccomp_filter"} \
             --bounding-set=-all,+SETFCAP,+NET_RAW$caps \
