@@ -235,7 +235,10 @@ _setup_chroot () (
     ln -vs /proc/self/fd/0 dev/stdin &
     ln -vs /proc/self/fd/1 dev/stdout &
     ln -vs /proc/self/fd/2 dev/stderr &
+
     ln -vs /run var/ 2>/dev/null || true &  # File exists
+    ln -vs /usr/bin bin 2>/dev/null || true &
+    ln -vs /usr/sbin sbin 2>/dev/null || true &
 
     # Mount default dirs, usr, lib
     IFS="$_RS"
@@ -261,7 +264,16 @@ _setup_chroot () (
         mount -vo bind,ro "$git_dir" "$ROOT$git_dir"
     done
 
-    # Handle RW_BIND=, RO_BIND=
+    # If not using the host's resolv.conf, set up slirp4netns's nameserver
+    [ -e etc/resolv.conf ] || echo 'nameserver 10.0.2.3' >etc/resolv.conf &
+
+    # Read firejail profile(s), if available
+    [ ! -e "./firejail.profile" ] || _read_firejail_config
+
+    # Gather here
+    wait
+
+    # Handle RW_BIND=, RO_BIND= last so user can override
     IFS="$_RS"
     for pth in $(_split_str "${RW_BIND:-}"); do
         _mount_bind "$pth"
@@ -270,17 +282,6 @@ _setup_chroot () (
         _mount_bind "$pth" ro
     done
     unset IFS
-
-    # Symlinks: /bin -> /usr/bin ...
-    for pth in usr/bin usr/sbin; do
-        [ -e "${pth##*/}" ] || ln -vs "$pth" "${pth##*/}" &
-    done
-
-    # If not using the host's resolv.conf, set up slirp4netns's nameserver
-    [ -e etc/resolv.conf ] || echo 'nameserver 10.0.2.3' >etc/resolv.conf &
-
-    # Read firejail profile(s), if available
-    [ ! -e "./firejail.profile" ] || _read_firejail_config
 )
 
 
@@ -358,7 +359,7 @@ _sandbox_setup () {
     caps="$(echo "${CAPS-}" | sed -E -e 's/[^A-Za-z_0-9+]+/,+/g; s/^([^+])/+\1/')"
     [ "$_SANDBOX_ROOT" ] && caps=",+DAC_OVERRIDE,+NET_BIND_SERVICE${caps:+,$caps}" args= ||
         caps="${caps:+,$caps}" args="--user --map-user $USER --map-group $_SANDBOX_GROUP $mountbinfmt"
-    unset _SANDBOX_ROOT
+    unset _SANDBOX_ROOT _SANDBOX_GROUP
 
     # Gather parallel/subprocesses
     wait
@@ -443,7 +444,7 @@ _sandbox_payload () {
     # Inside the sandbox, run
     echo "[${0##*/}] uid:$(id -u) pid:$$ cwd:$PWD args: $*" >&2
 
-    unset PORTS SLIRP4NETNS_ARGS _SANDBOX_GROUP
+    unset PORTS SLIRP4NETNS_ARGS
 
     [ ! "$VERBOSE" ] || env | sort >&2
 
