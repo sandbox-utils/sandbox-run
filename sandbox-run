@@ -391,7 +391,8 @@ _sandbox_setup () {
 
     # Netns configuration
     if [ "$netns" ]; then
-        test -e "/proc/$unshare_pid/ns/net" ||
+        is_child_active () { test -e "/proc/$unshare_pid/ns/net"; }
+        is_child_active ||
             category='ERROR' _warn "/proc/$unshare_pid/ns/net: No such file or directory"
 
         slirp_tmpdir="$(mktemp -dp "$ROOT/tmp" "${0##*/}_slirp4netns.XXXXXXXXXX")" \
@@ -409,10 +410,12 @@ _sandbox_setup () {
                 ${SLIRP4NETNS_ARGS:-} \
                 "$unshare_pid" "$tapname" &
         timeout -v 2 dd bs=1 count=1 <&7 >/dev/null 2>&1 || {
-            category=ERROR _warn 'Slirp not ready in time'; exit 12
+            if is_child_active; then category='ERROR' _warn 'Slirp not ready in time'; exit 12
+            else _warn "Child process exited before slirp4netns was ready; skipping network setup"; fi
         }
         # Setup port forwarding
         (
+            is_child_active || exit 0
             IFS=', '
             for spec in ${PORTS-}; do
                 host_port=${spec%%:*} t=${spec#*:} guest_port=${t%%/*}
@@ -426,7 +429,6 @@ _sandbox_setup () {
     fi
 
     # Wait for the sandbox payload to finish
-    test -d /proc/$((unshare_pid))  # Assert
     set +e; wait $((unshare_pid)); exit_status=$?; set -e
 
     # Kill slirp4netns. This is a no-op if fds are unasigned
