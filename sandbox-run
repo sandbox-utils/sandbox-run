@@ -404,7 +404,7 @@ _sandbox_setup () {
         tapname="tap-pid-$unshare_pid=$(echo "$*" | tr -cs '[:alnum:]' '-')"
 
         _maybe_verbose \
-            slirp4netns --configure --mtu=65520 --enable-ipv6 --enable-sandbox --enable-seccomp \
+            exec slirp4netns --configure --mtu=65520 --enable-ipv6 --enable-sandbox --enable-seccomp \
                 --ready-fd 7 --exit-fd 8 \
                 ${PORTS:+--api-socket "$slirp_tmpdir/slirp4netns.sock"} \
                 ${SLIRP4NETNS_ARGS:-} \
