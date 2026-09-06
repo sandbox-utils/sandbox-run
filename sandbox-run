@@ -218,7 +218,7 @@ _setup_chroot () (
     mount -t tmpfs -vo mode=0755,nosuid,nodev,noexec,relatime tmpfs run
     mkdir -vp dev/pts dev/shm
     mount -t devpts -o "newinstance,ptmxmode=0666" devpts dev/pts
-    mount -t tmpfs tmpfs dev/shm &
+    mount -t tmpfs -o mode=1777,dev tmpfs dev/shm &
     for pth in zero null full random urandom tty console net/tun; do
         pth="dev/$pth"
         if [ -e "/$pth" ]; then
