@@ -23,25 +23,34 @@ sandbox-run scary-binary
 ```
 (e.g. `sandbox-run npx @google/antigravity-sdk`)
 which relies on [**unshare**](https://manpages.debian.org/unstable/unshare) (from
-`util-linux` package) to spawn your native OS "container" under the hood,
+`util-linux` package) to spawn your native OS namespace-based "container" under the hood,
 and (in case of `npx @google/antigravity-sdk`),
 after downloading almost 500 MB ❗ of JavaScript _sources_,
 executes this untrusted third-party's Node/NPM package securely sandboxed,
 with its CWD in `$PWD` and new root filesystem (_/_) in `$PWD/.sandbox`.
 
-This script implements **most of the functionality of
+The script implements **most of the functionality of
 [`bubblewrap`](https://github.com/containers/bubblewrap) and
 [`firejail`](https://github.com/netblue30/firejail)**
 ([`bubblejail`](https://github.com/igo95862/bubblejail),
 `docker` (`podman`), etc.—all
 well-known Linux sandboxing tools that provide secure,
 isolated environments for running untrusted programs)
-**in about ~400 lines of pure POSIX shell**.
+**in about ~500 lines of pure POSIX shell**.
+
+The confined sandbox process looks roughly like this:
+```
+unshare --map-root-user                          # Sets up the chroot environment
+    unshare --map-current-user                   # Enters the sandbox namespaces
+        setpriv --seccomp-filter --ambient-caps  # Drops privileges
+            bash                                 # 👈 Your executable runs here
+    slirp4netns --configure                      # Provides user-space networking
+```
 
 You're on a terminal. There's nothing to build.
-You run it. It works.
+You run it—it works.
 The one major dependency chain is package _util-linux_,
-but if you can't trust Linux, can you even trust yourself?
+but if you can't trust Linux, should you even trust yourself?
 
 > [!NOTE]
 > The repo also contains Bubblewrap wrapper
@@ -167,7 +176,7 @@ or the following shell wrapper:
 list_sandbox_namespaces () {
     lsns -u -W | {
         IFS= read header; echo "$header"
-        grep --color=never "sandbox-run|slirp4netns"
+        grep -E --color=never "sandbox-run|slirp4netns"
     }
 }
 
