@@ -1,9 +1,9 @@
 #!/bin/sh
 
+# shellcheck disable=SC2016
 PS4="$(
-    if [ "${LINENO:-}" ] && [ "${BASH_VERSION:-}" ]; then lineno=':${LINENO-}>'; fi
-    printf "\033[34;40;1m+%s${lineno:-} \033[31;1m[%s]\033[0m " "$0" '$?'
-)"
+    [ ! "${LINENO:-}" ] || lineno=':${LINENO-}'
+    printf "\033[36;40;1m+%s${lineno:-}> \033[31;1m%s\033[0m" "$0" '${?#0}') "
 export PS4
 set -eux
 
