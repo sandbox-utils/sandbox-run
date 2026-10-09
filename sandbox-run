@@ -154,6 +154,7 @@ process_vm_readv process_vm_writev ptrace query_module quotactl reboot request_k
 sched_setattr sched_setparam sched_setscheduler security set_mempolicy set_mempolicy_home_node
 setdomainname sethostname setns settimeofday stime swapoff swapon sysfs syslog tuxcall
 uselib userfaultfd ustat vhangup vm86 vm86old vserver" |
+        tr ' ' '\n' |
         sort -u > "$tmp2"
     # shellcheck disable=SC2046
     enosys --dump="$ROOT/seccomp_filter.bin" \
