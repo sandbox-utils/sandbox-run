@@ -220,9 +220,9 @@ _setup_chroot () (
     # Hide seccomp filter
     [ ! -e "${seccomp_filter#"$ROOT/"}" ] ||
         mount -v --rbind /dev/null "${seccomp_filter#"$ROOT/"}"
-    # Conceal .env files
+    # Make .env files RO
     find "$pwd" -maxdepth 4 -path "$ROOT" -prune -o -type f -name '.env' -print0 |
-        xargs -P8 -0rn1 mount -v --bind /dev/null &
+        xargs -P8 -0rn1 mount -v -o remount,ro &
 
     # Mock /dev
     # Make sure filesystem superblock is owned by a mapped UID (i.e. 65534 -> 0)
