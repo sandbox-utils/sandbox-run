@@ -52,6 +52,8 @@ _LF='
 '
 pwd="$PWD"
 
+seccomp_filter="$ROOT/seccomp_filter.bin"
+
 _split_str () { printf '%s' "$1" | case "$1" in *$_LF*) tr '\n' "$_RS" ;; *) tr ' ' "$_RS" ;; esac; }
 
 _maybe_verbose () { if [ "$VERBOSE" ]; then "$@" >&2; else "$@" >/dev/null 2>&1; fi }
@@ -72,7 +74,7 @@ _cleanup () (
     echo "$mount_points" | xargs -P8 -rn1 umount -vR 2>&1
 
     cd "$ROOT"
-    [ ! "${seccomp_filter_cleanup:-}" ] || rm -v "seccomp_filter.bin" &
+    [ ! -e 'seccomp_filter.flag' ] || rm -vf "${seccomp_filter#"$ROOT/"}" 'seccomp_filter.flag' &
     [ ! "${slirp_socket-}" ] || rm -vf "$slirp_socket" || true &
     rm -vf bin sbin var/run || true &  # Symlinks
     rm -vf etc/resolv.conf || true &
@@ -80,6 +82,7 @@ _cleanup () (
     IFS="$_RS"
     # shellcheck disable=SC2046
     find $(_split_str "$mount_points") -type f -empty -delete  # touch-ed files
+    unset IFS
     find . -type d -empty -delete
 
     cd -
@@ -138,7 +141,7 @@ _generate_seccomp_filter () {
     command -v enosys >/dev/null 2>&1 || {
         # shellcheck disable=SC2016
         _warn "No seccomp filter (command \`enosys\` not available; \`apt install util-linux-extra\` \
-or provide own '$ROOT/seccomp_filter.bin')."
+or provide own '$seccomp_filter')."
         return 0
     }
     tmp1="$(mktemp)" tmp2="$(mktemp)"
@@ -157,10 +160,10 @@ uselib userfaultfd ustat vhangup vm86 vm86old vserver" |
         tr ' ' '\n' |
         sort -u > "$tmp2"
     # shellcheck disable=SC2046
-    enosys --dump="$ROOT/seccomp_filter.bin" \
+    enosys --dump="$seccomp_filter" \
         $(comm -12 "$tmp1" "$tmp2" | awk '{ printf " --syscall %s", $0}')
     rm "$tmp1" "$tmp2" &
-    seccomp_filter_cleanup=1
+    touch "$ROOT/seccomp_filter.flag"
 }
 
 
@@ -210,6 +213,9 @@ _setup_chroot () (
     # Conceal .sandbox ROOT inside the sandbox
     mkdir -vp .empty-sandbox ".$ROOT" &&
         mount -v --rbind .empty-sandbox ".$ROOT" &
+    # Hide seccomp filter
+    [ ! -e "${seccomp_filter#"$ROOT/"}" ] ||
+        mount -v --rbind /dev/null "${seccomp_filter#"$ROOT/"}"
     # Conceal .env files
     find "$pwd" -maxdepth 4 -path "$ROOT" -prune -o -type f -name '.env' -print0 |
         xargs -P8 -0rn1 mount -v --bind /dev/null &
@@ -321,7 +327,7 @@ _sandbox_setup () {
     _maybe_verbose _setup_chroot
 
     # Install seccomp filter if available
-    [ -e "$ROOT/seccomp_filter.bin" ] || _generate_seccomp_filter &
+    [ -e "$seccomp_filter" ] || _generate_seccomp_filter &
 
     # Don't pass these variables to sandbox
     unset RO_BIND RW_BIND
@@ -356,7 +362,7 @@ _sandbox_setup () {
     [ -t 0 ] && keep_tty='/dev/tty' || keep_tty='/dev/fd/0'
 
     date="$(date +%s)" random_time_offset="$(( (date % 32768) * (date % 101) ))"
-    [ -e "$ROOT/seccomp_filter.bin" ] && seccomp_filter="/seccomp_filter.bin" || seccomp_filter=
+    [ -e "$seccomp_filter" ] && seccomp_filter="/${seccomp_filter#"$ROOT/"}" || seccomp_filter=
     # If root, avoid userns (permission problems). Also retain some caps.
     caps="$(echo "${CAPS-}" | sed -E -e 's/[^A-Za-z_0-9+]+/,+/g; s/^([^+])/+\1/')"
     [ "$_SANDBOX_ROOT" ] && caps=",+DAC_OVERRIDE,+NET_BIND_SERVICE${caps:+,$caps}" args= ||
