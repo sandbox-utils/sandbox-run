@@ -297,6 +297,17 @@ _setup_chroot () (
 )
 
 
+_export_env_from_fd5 () {
+    # Init the environment passed via fd, which should overwrite .env:
+    # $ VAR=1 sandbox-run cmd  # overrides VAR from .env
+    set -f; IFS="$_RS"
+    vars_from_env=$(cat <&5); exec 5<&-
+    # shellcheck disable=SC2086
+    export ${vars_from_env?}
+    unset IFS; set +f
+}
+
+
 _sandbox_setup () {
     # Prepare chroot
     # XXX: Ideally we would set up overlayfs with lower=/,upper=$ROOT, but for permissions ...
@@ -312,19 +323,8 @@ _sandbox_setup () {
     # Duplicate stderr for really important messages by _warn()
     exec 3>&2
 
-    # Source .env
-    [ ! -e "$pwd/.env" ] || {
-        . "$pwd/.env"
-        # shellcheck disable=SC2013
-        for var in $(grep -oP '^\w+' "$pwd/.env"); do export "${var?}"; done
-    }
-    # Init the environment passed via fd, which overrides .env
-    # $ VAR=1 sandbox-run cmd  # overrides VAR from .env
-    set -f; IFS="$_RS"
-    # shellcheck disable=SC2013
-    for var in $(cat <&5); do export "${var?}"; done
-    unset IFS; set +f
-    # But make sure sbin utils are on path even if we were initially run by a normal user
+    _export_env_from_fd5
+    # Make sure sbin utils are on path even if we were initially run by a normal user
     case "$PATH" in */sbin/*) ;; *) PATH="$PATH:/usr/local/sbin:/usr/sbin:/sbin" ;; esac
 
     self="$(realpath "$0")"
@@ -400,7 +400,9 @@ _sandbox_setup () {
             --bounding-set=-all,+SETFCAP,+NET_RAW$caps \
             --inh-caps=-all,+SETFCAP,+NET_RAW$caps \
             --ambient-caps=-all,+SETFCAP,+NET_RAW$caps \
-        "$0" --_sandbox_payload "$@" <"$keep_tty" &
+        "$0" --_sandbox_payload "$@" <"$keep_tty" 5<<EOF &
+$vars_from_env
+EOF
     unshare_pid=$!
 
     # Netns configuration
@@ -456,6 +458,14 @@ _sandbox_payload () {
     # Inside the sandbox, run
     echo "[${0##*/}] uid:$(id -u) pid:$$ cwd:$PWD args: $*" >&2
 
+    # Source .env
+    [ ! -e "$pwd/.env" ] || {
+        . "$pwd/.env"
+        # shellcheck disable=SC2013
+        for var in $(grep -oP '^\w+' "$pwd/.env"); do export "${var?}"; done
+    }
+    _export_env_from_fd5
+
     unset PORTS SLIRP4NETNS_ARGS
 
     [ ! "$VERBOSE" ] || env | sort >&2
@@ -465,7 +475,9 @@ _sandbox_payload () {
 
 
 _filter_env () {
+    from_env="$([ ! -e .env ] || grep -Eo '^\w+' .env | paste -sd'|' -)"
     env -0 | grep -Eze '^('\
+"${from_env:+$from_env|}"\
 'VERBOSE|DEBUG|CLEANUP|RO_BIND|RW_BIND|DEFAULT_RO_BIND|DEFAULT_RW_BIND|PORTS|CAPS|'\
 'SLIRP4NETNS_ARGS|'\
 'USER|LOGNAME|UID|PATH|TERM|HOME|HOSTNAME|DISPLAY|WAYLAND_DISPLAY|'\
