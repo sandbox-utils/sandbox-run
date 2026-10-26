@@ -12,7 +12,8 @@ set -eu
     VERBOSE=1
 }
 
-ROOT="${ROOT:-$PWD/.sandbox}" ROOT="${ROOT%%/}"
+sandbox_name=.sandbox
+ROOT="${ROOT:-$PWD/$sandbox_name}" ROOT="${ROOT%%/}"
 VERBOSE="${VERBOSE:-}"
 CLEANUP="${CLEANUP:-}"
 RO_BIND="${RO_BIND-}"
@@ -72,6 +73,7 @@ _cleanup () (
     # Mount points under ROOT other than ROOT itself
     mount_points="$(mount | cut -d' ' -f3 | grep -F "$ROOT/" | sort -ur)"
     echo "$mount_points" | xargs -P8 -rn1 umount -vR 2>&1
+    umount -vlR "$ROOT"  # Revert early `mount --bind "$ROOT" "$ROOT"`
 
     cd "$ROOT"
     [ ! -e 'seccomp_filter.flag' ] || rm -vf "${seccomp_filter#"$ROOT/"}" 'seccomp_filter.flag' &
@@ -91,6 +93,8 @@ _cleanup () (
     if [ "$CLEANUP" ]; then rm -rfv "$ROOT"
     elif [ "$VERBOSE" ]; then category='' _warn "rootfs workdir in \"$ROOT\""
     fi
+    # If no new files were created, revert the workdir creation
+    [ "${ROOT##*/}" = "$sandbox_name" ] && find . -maxdepth 1 -name "$sandbox_name" -empty -delete &
     wait || true
 )
 
