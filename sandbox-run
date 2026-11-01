@@ -54,6 +54,7 @@ _LF='
 pwd="$PWD"
 
 seccomp_filter="$ROOT/seccomp_filter.bin"
+firejail_profile="firejail.profile"
 
 _split_str () { printf '%s' "$1" | case "$1" in *$_LF*) tr '\n' "$_RS" ;; *) tr ' ' "$_RS" ;; esac; }
 
@@ -82,6 +83,7 @@ _cleanup () (
     rm -vf etc/resolv.conf || true &
     rm -vf ./etc/passwd ./etc/group &  # Created /etc
     IFS="$_RS"
+    mount_points="$(echo "$mount_points" | grep -v "$seccomp_filter\$")"
     # shellcheck disable=SC2046
     find $(_split_str "$mount_points") -type f -empty -delete  # touch-ed files
     unset IFS
@@ -173,8 +175,8 @@ uselib userfaultfd ustat vhangup vm86 vm86old vserver" |
 
 _read_firejail_config () {
     tmp="./.tmp"
-    cat_profile () { [ ! -e "$1" ] || grep -E 'noblacklist|include|read-only' "$1"; }
-    cat_profile "./firejail.profile" >"$tmp"
+    cat_profile () { [ ! -e "$1" ] || grep -E 'noblacklist|include|read-only' "$1" || true; }
+    cat_profile "./$firejail_profile" >"$tmp"
     exec 3<"$tmp"
     while read -r line <&3 || [ "$line" ]; do
         keyword="${line%% *}"
@@ -217,9 +219,6 @@ _setup_chroot () (
     # Conceal .sandbox ROOT inside the sandbox
     mkdir -vp .empty-sandbox ".$ROOT" &&
         mount -v --rbind .empty-sandbox ".$ROOT" &
-    # Hide seccomp filter
-    [ ! -e "${seccomp_filter#"$ROOT/"}" ] ||
-        mount -v --rbind /dev/null "${seccomp_filter#"$ROOT/"}"
     # Make .env files RO
     find "$pwd" -maxdepth 4 -path "$ROOT" -prune -o -type f -name '.env' -print0 |
         xargs -P8 -0rn1 mount -v -o remount,ro &
@@ -280,7 +279,7 @@ _setup_chroot () (
     [ -e etc/resolv.conf ] || echo 'nameserver 10.0.2.3' >etc/resolv.conf &
 
     # Read firejail profile(s), if available
-    [ ! -e "./firejail.profile" ] || _read_firejail_config
+    [ ! -e "./$firejail_profile" ] || _read_firejail_config
 
     # Gather here
     wait
@@ -333,6 +332,11 @@ _sandbox_setup () {
     # Install seccomp filter if available
     [ -e "$seccomp_filter" ] || _generate_seccomp_filter &
 
+    # Mark extra security features read-only
+    _mount_ro () { mount -vo bind,ro "$1" "${2:-$1}"; }
+    [ ! -e "$seccomp_filter" ] || _mount_ro "$seccomp_filter"
+    [ ! -e "$ROOT/$firejail_profile" ] || _mount_ro "$ROOT/$firejail_profile"
+
     # Don't pass these variables to sandbox
     unset RO_BIND RW_BIND
     unset DEFAULT_RO_BIND DEFAULT_RW_BIND
@@ -366,7 +370,7 @@ _sandbox_setup () {
     [ -t 0 ] && keep_tty='/dev/tty' || keep_tty='/dev/fd/0'
 
     date="$(date +%s)" random_time_offset="$(( (date % 32768) * (date % 101) ))"
-    [ -e "$seccomp_filter" ] && seccomp_filter="/${seccomp_filter#"$ROOT/"}" || seccomp_filter=
+    [ -e "$seccomp_filter" ] && setpriv_seccomp_filter="/${seccomp_filter#"$ROOT/"}" || setpriv_seccomp_filter=
     # If root, avoid userns (permission problems). Also retain some caps.
     caps="$(echo "${CAPS-}" | sed -E -e 's/[^A-Za-z_0-9+]+/,+/g; s/^([^+])/+\1/')"
     [ "$_SANDBOX_ROOT" ] && caps=",+DAC_OVERRIDE,+NET_BIND_SERVICE${caps:+,$caps}" args= ||
@@ -396,7 +400,8 @@ _sandbox_setup () {
             --monotonic $((random_time_offset)) --boottime $((random_time_offset)) \
             --pid --time \
             --keep-caps --wd "$pwd" \
-        setpriv ${seccomp_filter:+--seccomp-filter "$seccomp_filter"} \
+        setpriv \
+            ${setpriv_seccomp_filter:+--seccomp-filter "$setpriv_seccomp_filter"} \
             --bounding-set=-all,+SETFCAP,+NET_RAW$caps \
             --inh-caps=-all,+SETFCAP,+NET_RAW$caps \
             --ambient-caps=-all,+SETFCAP,+NET_RAW$caps \
