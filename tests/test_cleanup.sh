@@ -8,6 +8,9 @@ mount="$(mount)"
 sandbox-run ls
 test "$mount" = "$(mount)"
 
+# No residue workdir when none were needed
+test ! -d .sandbox
+
 # Test CLEANUP=
 touch_file () { sandbox-run sh -c "touch ~/${0##*/}"; }
 CLEANUP=1 touch_file
