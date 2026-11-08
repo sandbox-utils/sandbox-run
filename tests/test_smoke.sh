@@ -6,6 +6,9 @@ set -eux
 # stdout is clean
 test "$(sandbox-run sh -c 'echo clean')" = clean
 
+# stdin is read
+test "$(echo ok | sandbox-run cat)" = ok
+
 # Awk works via /etc/alternatives
 sandbox-run sh -c 'awk -V | grep -Fq "GNU Awk"'
 
