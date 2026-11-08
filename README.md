@@ -22,21 +22,20 @@ utility from this repo:
 sandbox-run scary-binary
 ```
 (e.g. `sandbox-run npx @google/antigravity-sdk`)
-which relies on [**unshare**](https://manpages.debian.org/unstable/unshare) (from
-`util-linux` package) to spawn your native OS namespace-based "container" under the hood,
+which relies on [util-linux/**unshare**](https://manpages.debian.org/unstable/unshare)
+to spawn your native OS namespace-based "container" under the hood,
 and (in case of `npx @google/antigravity-sdk`),
 after downloading almost 500 MB ❗ of JavaScript _sources_,
 executes this untrusted third-party's Node/NPM package securely sandboxed,
-with its CWD in `$PWD` and new root filesystem (_/_) in `$PWD/.sandbox`.
+with its CWD in `$PWD` and new root filesystem (_/_) in real `$PWD/.sandbox`.
 
-The script implements **most of the functionality of
+The humble shell script implements **most of the functionality of
 [`bubblewrap`](https://github.com/containers/bubblewrap) and
 [`firejail`](https://github.com/netblue30/firejail)**
 ([`bubblejail`](https://github.com/igo95862/bubblejail),
-`docker` (`podman`), etc.—all
-well-known Linux sandboxing tools that provide secure,
+`docker`, `podman`, etc.—all well-known Linux sandboxing tools that provide
 isolated environments for running untrusted programs)
-**in about ~500 lines of pure POSIX shell**.
+**in a few hundred lines of pure POSIX shell**.
 
 The confined sandbox process looks roughly like this:
 ```
